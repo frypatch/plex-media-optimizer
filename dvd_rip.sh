@@ -138,16 +138,32 @@ printHelp() {
 }
 # main logic function
 main () {
-  echo "dry         $dryRun"
-  echo "sample      $produceSample"
-  echo "cleanup     $discardOriginal"
-  echo "bitrate     $videoBitrate"
-  echo "denoise     $denoise"
-  echo "forceAvc    $forceAvc"
-  echo "force8bit   $force8bit"
-  echo "stabilize   $stabilize"
-  echo "filter      $filter"
-  echo "inputDir    $inputDir"
+  echo -e "${SUCCESS_FONT}dry         ${dryRun}"
+  echo -e "${SUCCESS_FONT}sample      ${produceSample}"
+  echo -e "${SUCCESS_FONT}cleanup     ${discardOriginal}"
+  echo -e "${SUCCESS_FONT}bitrate     ${videoBitrate}"
+  echo -e "${SUCCESS_FONT}denoise     ${denoise}"
+  echo -e "${SUCCESS_FONT}forceAvc    ${forceAvc}"
+  echo -e "${SUCCESS_FONT}force8bit   ${force8bit}"
+  echo -e "${SUCCESS_FONT}stabilize   ${stabilize}"
+  if [ "$(isZscaleInstalled)" == "true" ]; then
+    echo -e "${SUCCESS_FONT}has zscale  $(isZscaleInstalled)"
+  else
+    echo -e "${ALERT_FONT}has zscale  $(isZscaleInstalled)${SUCCESS_FONT}"
+  fi
+  if [ "$(isFdkAacInstalled)" == "true" ]; then
+    echo -e "${SUCCESS_FONT}has fdk aac $(isFdkAacInstalled)"
+  else
+    echo -e "${ALERT_FONT}has fdk aac $(isFdkAacInstalled)${SUCCESS_FONT}"
+  fi
+  if [ "$(isLibVidStabInstalled)" == "true" ]; then
+    echo -e "${SUCCESS_FONT}has vidstab $(isLibVidStabInstalled)"
+  else
+    echo -e "${ALERT_FONT}has vidstab $(isLibVidStabInstalled)${SUCCESS_FONT}"
+  fi
+  echo -e "${SUCCESS_FONT}filter      ${filter}"
+  echo -e "${SUCCESS_FONT}inputDir    ${inputDir}"
+  echo -e "${RESET_FONT}"  
   for dir in "$(getInputDir)"/*/ ; do
     # everything before the last / is considered the title
     title=${dir%/*}
@@ -177,22 +193,69 @@ main () {
     fi
   done
 }
-cut_scene () {
-  local ORIGINAL_VERSION="${TMP_DIR}/original.mp4"
+stabilize() {
+  local SCENE="${1}"
+  local STABILIZE_VIDEO="$(getStabilize)"
+  local FFMPEG_ANALYZE_SCENE_PARAMS=()
+  FFMPEG_ANALYZE_SCENE_PARAMS+=(-i "${SCENE}")
+  FFMPEG_ANALYZE_SCENE_PARAMS+=(-map "0:v:0")
+  FFMPEG_ANALYZE_SCENE_PARAMS+=(-vf "vidstabdetect=stepsize=32")
+  FFMPEG_ANALYZE_SCENE_PARAMS+=(-f null)
+  FFMPEG_ANALYZE_SCENE_PARAMS+=(-)
+  if ffmpeg ${FFMPEG_ANALYZE_SCENE_PARAMS[@]}; then
+    echo -e "${SUCCESS_FONT}Successfully analysed scene ${SCENE}${RESET_FONT}"
+    local FFMPEG_STABILIZE_SCENE_PARAMS=()
+    FFMPEG_STABILIZE_SCENE_PARAMS+=(-i "${SCENE}")
+    FFMPEG_STABILIZE_SCENE_PARAMS+=(-map "0:v:0")
+    if [ "${STABILIZE_VIDEO}" == "true" ]; then
+      FFMPEG_STABILIZE_SCENE_PARAMS+=(-vf "vidstabtransform=zoom=0:optzoom=1:interpol=bicubic:smoothing=30:crop=black")
+    else
+      # setting maxangle=0 as even 3deg produced jello effects in Tears of Steel.
+      # setting maxshift=24 to make sure that the video doesn't get too zoomed in.
+      FFMPEG_STABILIZE_SCENE_PARAMS+=(-vf "vidstabtransform=zoom=0:optzoom=1:interpol=bicubic:smoothing=30:maxangle=0:maxshift=24:crop=black")
+    fi
+    FFMPEG_STABILIZE_SCENE_PARAMS+=(-vcodec "libx264")
+    FFMPEG_STABILIZE_SCENE_PARAMS+=(-crf "6")
+    FFMPEG_STABILIZE_SCENE_PARAMS+=(-preset "slow")
+    FFMPEG_STABILIZE_SCENE_PARAMS+=(-profile:v "high10")
+    FFMPEG_STABILIZE_SCENE_PARAMS+=(-level:v 6.1)
+    FFMPEG_STABILIZE_SCENE_PARAMS+=(-g 60)
+    FFMPEG_STABILIZE_SCENE_PARAMS+=(-sc_threshold 0)
+    FFMPEG_STABILIZE_SCENE_PARAMS+=(-an)
+    FFMPEG_STABILIZE_SCENE_PARAMS+=(-f "mp4")
+    FFMPEG_STABILIZE_SCENE_PARAMS+=(-y "${SCENE}.stable")
+    if ffmpeg ${FFMPEG_STABILIZE_SCENE_PARAMS[@]}; then      
+      rm "${SCENE}"
+      mv "${SCENE}.stable" "${SCENE}"
+      echo -e "${SUCCESS_FONT}Successfully stabilized scene ${SCENE}${RESET_FONT}"
+    else
+      echo -e "${ALERT_FONT}Failed to stabilize scene ${SCENE}${RESET_FONT}"
+      rm "${SCENE}.stable"
+    fi
+  else
+    echo -e "${ALERT_FONT}Failed to analyse scene ${SCENE}${RESET_FONT}"
+  fi
+}
+denoise_scene () {
+  local ORIGINAL_FILENAME="${1}"
+  local START_FRAME="${2}"
+  local SCENE_COUNT="${3}"
+  local END_FRAME="${4}"
+  local IS_LIB_VID_STAB_INSTALLED="$(isLibVidStabInstalled)"
   local STABILIZE_VIDEO="$(getStabilize)"
   local INPUT_PIX_FMT="$(getInputPixFmt)"
   local VIDEO_FILTER=""
-  if [ "$3" != "" ]; then
-    VIDEO_FILTER="select='between(n,${1},${3})',setpts='PTS-STARTPTS'"
+  if [ "${END_FRAME}" != "" ]; then
+    VIDEO_FILTER="select='between(n,${START_FRAME},${END_FRAME})',setpts='PTS-STARTPTS'"
   else
-    VIDEO_FILTER="select='gte(n,${1})',setpts='PTS-STARTPTS'"
+    VIDEO_FILTER="select='gte(n,${START_FRAME})',setpts='PTS-STARTPTS'"
   fi
   if [ "${INPUT_PIX_FMT}" != "yuv420p" ]; then
     VIDEO_FILTER="${VIDEO_FILTER},format=yuv420p"
   fi
   VIDEO_FILTER="${VIDEO_FILTER},nlmeans='1.0:7:5:3:3',format=yuv420p10le"
   local FFMPEG_SCENE_CUT_PARAMS=()
-  FFMPEG_SCENE_CUT_PARAMS+=(-i "${ORIGINAL_VERSION}")
+  FFMPEG_SCENE_CUT_PARAMS+=(-i "${ORIGINAL_FILENAME}")
   FFMPEG_SCENE_CUT_PARAMS+=(-map "0:v:0")
   FFMPEG_SCENE_CUT_PARAMS+=(-vf "${VIDEO_FILTER}")
   FFMPEG_SCENE_CUT_PARAMS+=(-vsync 1)
@@ -205,56 +268,22 @@ cut_scene () {
   FFMPEG_SCENE_CUT_PARAMS+=(-sc_threshold 0)
   FFMPEG_SCENE_CUT_PARAMS+=(-an)
   FFMPEG_SCENE_CUT_PARAMS+=(-f "mp4")
-  FFMPEG_SCENE_CUT_PARAMS+=(-y "${TMP_DIR}/scenes/pt${2}.m4v")
+  FFMPEG_SCENE_CUT_PARAMS+=(-y "${TMP_DIR}/scenes/pt${SCENE_COUNT}.m4v")
   if ffmpeg ${FFMPEG_SCENE_CUT_PARAMS[@]}; then
-    local FFMPEG_ANALYZE_SCENE_PARAMS=()
-    FFMPEG_ANALYZE_SCENE_PARAMS+=(-i "${TMP_DIR}/scenes/pt${2}.m4v")
-    FFMPEG_ANALYZE_SCENE_PARAMS+=(-map "0:v:0")
-    FFMPEG_ANALYZE_SCENE_PARAMS+=(-vf "vidstabdetect=stepsize=32")
-    FFMPEG_ANALYZE_SCENE_PARAMS+=(-f null)
-    FFMPEG_ANALYZE_SCENE_PARAMS+=(-)
-    if ffmpeg ${FFMPEG_ANALYZE_SCENE_PARAMS[@]}; then
-      local FFMPEG_STABILIZE_SCENE_PARAMS=()
-      FFMPEG_STABILIZE_SCENE_PARAMS+=(-i "${TMP_DIR}/scenes/pt${2}.m4v")
-      FFMPEG_STABILIZE_SCENE_PARAMS+=(-map "0:v:0")
-      if [ "${STABILIZE_VIDEO}" == "true" ]; then
-        FFMPEG_STABILIZE_SCENE_PARAMS+=(-vf "vidstabtransform=zoom=0:optzoom=1:interpol=bicubic:smoothing=30:crop=black")
-      else
-        # setting maxangle=0 as even 3deg produced jello effects in Tears of Steel.
-        # setting maxshift=24 to make sure that the video doesn't get too zoomed in.
-        FFMPEG_STABILIZE_SCENE_PARAMS+=(-vf "vidstabtransform=zoom=0:optzoom=1:interpol=bicubic:smoothing=30:maxangle=0:maxshift=24:crop=black")
-      fi
-      FFMPEG_STABILIZE_SCENE_PARAMS+=(-vcodec "libx264")
-      FFMPEG_STABILIZE_SCENE_PARAMS+=(-crf "6")
-      FFMPEG_STABILIZE_SCENE_PARAMS+=(-preset "slow")
-      FFMPEG_STABILIZE_SCENE_PARAMS+=(-profile:v "high10")
-      FFMPEG_STABILIZE_SCENE_PARAMS+=(-level:v 6.1)
-      FFMPEG_STABILIZE_SCENE_PARAMS+=(-g 60)
-      FFMPEG_STABILIZE_SCENE_PARAMS+=(-sc_threshold 0)
-      FFMPEG_STABILIZE_SCENE_PARAMS+=(-an)
-      FFMPEG_STABILIZE_SCENE_PARAMS+=(-f "mp4")
-      FFMPEG_STABILIZE_SCENE_PARAMS+=(-y "${TMP_DIR}/scenes/stable${2}.mp4")
-      if ffmpeg ${FFMPEG_STABILIZE_SCENE_PARAMS[@]}; then
-        rm "${TMP_DIR}/scenes/pt${2}.m4v"
-        mv "${TMP_DIR}/scenes/stable${2}.mp4" "${TMP_DIR}/scenes/pt${2}.m4v"
-        echo "successful split and stabilized scene ${TMP_DIR}/scenes/pt${2}"
-      else
-        echo "failed to stabilize scene ${TMP_DIR}/scenes/pt${2}"
-        rm "${TMP_DIR}/scenes/stable${2}.mp4"
-      fi
-    else
-      echo "failed to detect stabilization data for scene ${TMP_DIR}/scenes/pt${2}"
+    if [ "${IS_LIB_VID_STAB_INSTALLED}" == "true" ]; then 
+      stabilize "${TMP_DIR}/scenes/pt${SCENE_COUNT}.m4v"
     fi
   else
-    echo "failed to split scene ${TMP_DIR}/scenes/pt${2}"
+    echo "failed to split scene ${TMP_DIR}/scenes/pt${SCENE_COUNT}"
   fi
 }
 denoise() {
   local TMP_DIR="$(getTmpDir)"
+  local FILENAME="${1}"
   local ORIGINAL_VERSION="${TMP_DIR}/original.mp4"
   local DENOISED_VERSION="${TMP_DIR}/denoised.mp4"
   if [ ! -f "${ORIGINAL_VERSION}" ]; then
-    cp "${1}" "${ORIGINAL_VERSION}"
+    cp "${FILENAME}" "${ORIGINAL_VERSION}"
   fi
   local SCENE_DIR="${TMP_DIR}/scenes"
   mkdir -p "${SCENE_DIR}"
@@ -264,12 +293,12 @@ denoise() {
   local COUNT=0
   SCENES=`cat "${TMP_DIR}/scenes.txt"`
   for SCENE_INDEX in $SCENES; do
-    cut_scene $(echo "$FROM_FRAME-1" | bc) $(echo "1000000+$COUNT" | bc) $(echo "$SCENE_INDEX-2" | bc)
+    denoise_scene "${ORIGINAL_VERSION}" $(echo "$FROM_FRAME-1" | bc) $(echo "1000000+$COUNT" | bc) $(echo "$SCENE_INDEX-2" | bc)
     FROM_FRAME=${SCENE_INDEX}
     COUNT=$(echo "$COUNT+1" | bc)
   done
   if [ $FROM_FRAME != 0 ]; then
-    cut_scene $FROM_FRAME 9999999
+    denoise_scene "${ORIGINAL_VERSION}" $FROM_FRAME 9999999
   fi
   for f in "${TMP_DIR}/scenes"/*.m4v; do echo "file '$f'" >> "${TMP_DIR}/mylist.txt"; done
   local FFMPEG_CONCAT_PARAMS=()
@@ -346,11 +375,11 @@ optimize () {
     fi
     FFMPEG_OPTIMIZE_PARAMS+=(-map "0:v:0")
     FFMPEG_OPTIMIZE_PARAMS+=(-map "-0:t") # remove attachments
-    # currently not sure what format the video uses because we could be using the denoised video or the original video.
-    local VIDEO_FILTER="format=yuv420p10le,"
-#    if [ "${INPUT_PIX_FMT}" != "yuv420p10le" ]; then
-#      VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p10le,"
-#    fi
+    local VIDEO_FILTER=""
+    # denoised version is always in yuv420p10le
+    if [ ! -f "${DENOISED_VERSION}" ] && [ "${INPUT_PIX_FMT}" != "yuv420p10le" ]; then
+      VIDEO_FILTER="format=yuv420p10le,"
+    fi
     if [ "${INPUT_COLOR_PRIMITIVES}" == "unknown" ]; then
       if [ "${INPUT_HEIGHT}" -gt "720" ]; then
         VIDEO_FILTER="${VIDEO_FILTER}colorspace=bt709:iall=bt2020:fast=1,"
@@ -868,20 +897,28 @@ getInputFps () {
         fi
 }
 isZscaleInstalled () {
-        local isZscaleInstalled=$((ffmpeg -version) 2>&1)
-        if [[ "$isZscaleInstalled" == *"--enable-libzimg"* ]]; then
-                echo "true"
-        else
-                echo "false"
-        fi
+  local FFMPEG_VERSION=$((ffmpeg -version) 2>&1)
+  if [[ "${FFMPEG_VERSION}" == *"--enable-libzimg"* ]]; then
+    echo "true"
+  else
+    echo "false"
+  fi
 }
 isFdkAacInstalled () {
-        local isFdkAacInstalled=$((ffmpeg -version) 2>&1)
-        if [[ "$isFdkAacInstalled" == *"--enable-libfdk-aac"* ]]; then
-                echo "true"
-        else
-                echo "false"
-        fi
+  local FFMPEG_VERSION=$((ffmpeg -version) 2>&1)
+  if [[ "${FFMPEG_VERSION}" == *"--enable-libfdk-aac"* ]]; then
+    echo "true"
+  else
+    echo "false"
+  fi
+}
+isLibVidStabInstalled () {
+  local FFMPEG_VERSION=$((ffmpeg -version) 2>&1)
+  if [[ "${FFMPEG_VERSION}" == *"--enable-libvidstab"* ]]; then
+    echo "true"
+  else
+    echo "false"
+  fi
 }
 # when the help parameter is set then print the help documentation; otherwise run the main logic.
 if [ "$(getHelp)" == "true" ]; then
