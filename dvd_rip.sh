@@ -84,8 +84,10 @@ produceSample="false"
 denoise="true"
 # stabilize; when true the video will be angularly stabilized.
 stabilize="false"
-# when truen then display the help message
+# when true then display the help message
 help="false"
+# the preset to use. Options: ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow, placebo
+preset="slow"
 
 while [[ "$#" -ge 1 ]]; do
   if [ "$1" == "-h" ] || [ "$1" == "-help" ]; then
@@ -107,6 +109,9 @@ while [[ "$#" -ge 1 ]]; do
   elif [ "$1" == "-filter" ] || [ "$1" == "-f" ]; then
     shift
     filter="$1"
+  elif [ "$1" == "-preset" ] || [ "$1" == "-p" ]; then
+    shift
+    preset="$1"
   elif [ "$1" == "-bitrate" ]; then
     shift
     videoBitrate="$1"
@@ -120,50 +125,48 @@ printHelp() {
   echo "usage: dvd_rip_2.sh [options] {input directory}"
   echo ""
   echo "Per-file main options:"
-  echo "-h              same as -help"
-  echo "-d              same as -dry"
-  echo "-s              same as -sample"
-  echo "-c              same as -cleanup"
-  echo "-f [regex]      same as -filter [regex]"
-  echo "-dry            prints the state of videos"
-  echo "-sample         optimizes the first 30 seconds of the videos"
-  echo "-cleanup        delete the original file[s] after producing its optimized version"
-  echo "-bitrate        the capped video bitrate in kb/s (default is 1900)"
-  echo "-force264       same as -forceAvc"
-  echo "-forceAvc       force the optimized files to use AVC encoding (default is HEVC)"
-  echo "-force8bit      force the optimized files to use 8 bit encoding (default is 10 bit)"
-  echo "-stabilize      angularly stabilize the video (default is to not angularly stabilize the video, requires vidstab)"
-  echo "-skipDenoise    do not denoise or dejitter the video (default is to lightly denoise with NLMeans and dejitter)"
-  echo "-filter [regex] only optimize videos when their names match the supplied regex"
+  echo "-h                  same as -help"
+  echo "-d                  same as -dry"
+  echo "-s                  same as -sample"
+  echo "-c                  same as -cleanup"
+  echo "-f [regex]          same as -filter [regex]"
+  echo "-p [selection]      same as -preset [selection]"
+  echo "-dry                prints the state of videos"
+  echo "-sample             optimizes the first 30 seconds of the videos"
+  echo "-cleanup            delete the original file[s] after producing its optimized version"
+  echo "-bitrate            the capped video bitrate in kb/s (default is 1900)"
+  echo "-force264           same as -forceAvc"
+  echo "-forceAvc           force the optimized files to use AVC encoding (default is HEVC)"
+  echo "-force8bit          force the optimized files to use 8 bit encoding (default is 10 bit)"
+  echo "-stabilize          angularly stabilize the video (default is to not angularly stabilize the video, requires vidstab)"
+  echo "-skipDenoise        do not denoise or dejitter the video (default is to lightly denoise with NLMeans and dejitter)"
+  echo "-filter [regex]     only optimize videos when their names match the supplied regex"
+  echo "-preset [selection] what preset value to use. options: ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow, placebo"
 }
 # main logic function
 main () {
-  echo -e "${SUCCESS_FONT}dry         ${dryRun}"
-  echo -e "${SUCCESS_FONT}sample      ${produceSample}"
-  echo -e "${SUCCESS_FONT}cleanup     ${discardOriginal}"
-  echo -e "${SUCCESS_FONT}bitrate     ${videoBitrate}"
-  echo -e "${SUCCESS_FONT}denoise     ${denoise}"
-  echo -e "${SUCCESS_FONT}forceAvc    ${forceAvc}"
-  echo -e "${SUCCESS_FONT}force8bit   ${force8bit}"
-  echo -e "${SUCCESS_FONT}stabilize   ${stabilize}"
-  if [ "$(isZscaleInstalled)" == "true" ]; then
-    echo -e "${SUCCESS_FONT}has zscale  $(isZscaleInstalled)"
-  else
-    echo -e "${ALERT_FONT}has zscale  $(isZscaleInstalled)${SUCCESS_FONT}"
-  fi
+  echo -e "${SUCCESS_FONT}dry         ${dryRun}${RESET_FONT}"
+  echo -e "${SUCCESS_FONT}sample      ${produceSample}${RESET_FONT}"
+  echo -e "${SUCCESS_FONT}cleanup     ${discardOriginal}${RESET_FONT}"
+  echo -e "${SUCCESS_FONT}bitrate     ${videoBitrate}${RESET_FONT}"
+  echo -e "${SUCCESS_FONT}denoise     ${denoise}${RESET_FONT}"
+  echo -e "${SUCCESS_FONT}forceAvc    ${forceAvc}${RESET_FONT}"
+  echo -e "${SUCCESS_FONT}force8bit   ${force8bit}${RESET_FONT}"
+  echo -e "${SUCCESS_FONT}stabilize   ${stabilize}${RESET_FONT}"
   if [ "$(isFdkAacInstalled)" == "true" ]; then
-    echo -e "${SUCCESS_FONT}has fdk aac $(isFdkAacInstalled)"
+    echo -e "${SUCCESS_FONT}has fdk aac $(isFdkAacInstalled)${RESET_FONT}"
   else
-    echo -e "${ALERT_FONT}has fdk aac $(isFdkAacInstalled)${SUCCESS_FONT}"
+    echo -e "${ALERT_FONT}has fdk aac $(isFdkAacInstalled)${RESET_FONT}"
   fi
   if [ "$(isLibVidStabInstalled)" == "true" ]; then
-    echo -e "${SUCCESS_FONT}has vidstab $(isLibVidStabInstalled)"
+    echo -e "${SUCCESS_FONT}has vidstab $(isLibVidStabInstalled)${RESET_FONT}"
   else
-    echo -e "${ALERT_FONT}has vidstab $(isLibVidStabInstalled)${SUCCESS_FONT}"
+    echo -e "${ALERT_FONT}has vidstab $(isLibVidStabInstalled)${RESET_FONT}"
   fi
-  echo -e "${SUCCESS_FONT}filter      ${filter}"
-  echo -e "${SUCCESS_FONT}inputDir    ${inputDir}"
-  echo -e "${RESET_FONT}"  
+  echo -e "${SUCCESS_FONT}preset      ${preset}${RESET_FONT}"
+  echo -e "${SUCCESS_FONT}filter      ${filter}${RESET_FONT}"
+  echo -e "${SUCCESS_FONT}inputDir    ${inputDir}${RESET_FONT}"
+  echo -e "------------------------"
   for dir in "$(getInputDir)"/*/ ; do
     # everything before the last / is considered the title
     title=${dir%/*}
@@ -193,193 +196,73 @@ main () {
     fi
   done
 }
-stabilize() {
-  local SCENE="${1}"
-  local STABILIZE_VIDEO="$(getStabilize)"
-  local FFMPEG_ANALYZE_SCENE_PARAMS=()
-  FFMPEG_ANALYZE_SCENE_PARAMS+=(-i "${SCENE}")
-  FFMPEG_ANALYZE_SCENE_PARAMS+=(-map "0:v:0")
-  FFMPEG_ANALYZE_SCENE_PARAMS+=(-vf "vidstabdetect=stepsize=32")
-  FFMPEG_ANALYZE_SCENE_PARAMS+=(-f null)
-  FFMPEG_ANALYZE_SCENE_PARAMS+=(-)
-  if ffmpeg ${FFMPEG_ANALYZE_SCENE_PARAMS[@]}; then
-    echo -e "${SUCCESS_FONT}Successfully analysed scene ${SCENE}${RESET_FONT}"
-    local FFMPEG_STABILIZE_SCENE_PARAMS=()
-    FFMPEG_STABILIZE_SCENE_PARAMS+=(-i "${SCENE}")
-    FFMPEG_STABILIZE_SCENE_PARAMS+=(-map "0:v:0")
-    if [ "${STABILIZE_VIDEO}" == "true" ]; then
-      FFMPEG_STABILIZE_SCENE_PARAMS+=(-vf "vidstabtransform=zoom=0:optzoom=1:interpol=bicubic:smoothing=30:crop=black")
-    else
-      # setting maxangle=0 as even 3deg produced jello effects in Tears of Steel.
-      # setting maxshift=24 to make sure that the video doesn't get too zoomed in.
-      FFMPEG_STABILIZE_SCENE_PARAMS+=(-vf "vidstabtransform=zoom=0:optzoom=1:interpol=bicubic:smoothing=30:maxangle=0:maxshift=24:crop=black")
-    fi
-    FFMPEG_STABILIZE_SCENE_PARAMS+=(-vcodec "libx264")
-    FFMPEG_STABILIZE_SCENE_PARAMS+=(-crf "6")
-    FFMPEG_STABILIZE_SCENE_PARAMS+=(-preset "slow")
-    FFMPEG_STABILIZE_SCENE_PARAMS+=(-profile:v "high10")
-    FFMPEG_STABILIZE_SCENE_PARAMS+=(-level:v 6.1)
-    FFMPEG_STABILIZE_SCENE_PARAMS+=(-g 60)
-    FFMPEG_STABILIZE_SCENE_PARAMS+=(-sc_threshold 0)
-    FFMPEG_STABILIZE_SCENE_PARAMS+=(-an)
-    FFMPEG_STABILIZE_SCENE_PARAMS+=(-f "mp4")
-    FFMPEG_STABILIZE_SCENE_PARAMS+=(-y "${SCENE}.stable")
-    if ffmpeg ${FFMPEG_STABILIZE_SCENE_PARAMS[@]}; then      
-      rm "${SCENE}"
-      mv "${SCENE}.stable" "${SCENE}"
-      echo -e "${SUCCESS_FONT}Successfully stabilized scene ${SCENE}${RESET_FONT}"
-    else
-      echo -e "${ALERT_FONT}Failed to stabilize scene ${SCENE}${RESET_FONT}"
-      rm "${SCENE}.stable"
-    fi
-  else
-    echo -e "${ALERT_FONT}Failed to analyse scene ${SCENE}${RESET_FONT}"
-  fi
-}
-denoise_scene () {
-  local ORIGINAL_FILENAME="${1}"
-  local START_FRAME="${2}"
-  local SCENE_COUNT="${3}"
-  local END_FRAME="${4}"
-  local IS_LIB_VID_STAB_INSTALLED="$(isLibVidStabInstalled)"
-  local STABILIZE_VIDEO="$(getStabilize)"
-  local INPUT_PIX_FMT="$(getInputPixFmt)"
-  local VIDEO_FILTER=""
-  if [ "${END_FRAME}" != "" ]; then
-    VIDEO_FILTER="select='between(n,${START_FRAME},${END_FRAME})',setpts='PTS-STARTPTS'"
-  else
-    VIDEO_FILTER="select='gte(n,${START_FRAME})',setpts='PTS-STARTPTS'"
-  fi
-  if [ "${INPUT_PIX_FMT}" != "yuv420p" ]; then
-    VIDEO_FILTER="${VIDEO_FILTER},format=yuv420p"
-  fi
-  VIDEO_FILTER="${VIDEO_FILTER},nlmeans='1.0:7:5:3:3',format=yuv420p10le"
-  local FFMPEG_SCENE_CUT_PARAMS=()
-  FFMPEG_SCENE_CUT_PARAMS+=(-i "${ORIGINAL_FILENAME}")
-  FFMPEG_SCENE_CUT_PARAMS+=(-map "0:v:0")
-  FFMPEG_SCENE_CUT_PARAMS+=(-vf "${VIDEO_FILTER}")
-  FFMPEG_SCENE_CUT_PARAMS+=(-vsync 1)
-  FFMPEG_SCENE_CUT_PARAMS+=(-vcodec "libx264")
-  FFMPEG_SCENE_CUT_PARAMS+=(-crf "3")
-  FFMPEG_SCENE_CUT_PARAMS+=(-preset "slow")
-  FFMPEG_SCENE_CUT_PARAMS+=(-profile:v "high10")
-  FFMPEG_SCENE_CUT_PARAMS+=(-level:v 6.1)
-  FFMPEG_SCENE_CUT_PARAMS+=(-g 60)
-  FFMPEG_SCENE_CUT_PARAMS+=(-sc_threshold 0)
-  FFMPEG_SCENE_CUT_PARAMS+=(-an)
-  FFMPEG_SCENE_CUT_PARAMS+=(-f "mp4")
-  FFMPEG_SCENE_CUT_PARAMS+=(-y "${TMP_DIR}/scenes/pt${SCENE_COUNT}.m4v")
-  if ffmpeg ${FFMPEG_SCENE_CUT_PARAMS[@]}; then
-    if [ "${IS_LIB_VID_STAB_INSTALLED}" == "true" ]; then 
-      stabilize "${TMP_DIR}/scenes/pt${SCENE_COUNT}.m4v"
-    fi
-  else
-    echo "failed to split scene ${TMP_DIR}/scenes/pt${SCENE_COUNT}"
-  fi
-}
-denoise() {
-  local TMP_DIR="$(getTmpDir)"
-  local FILENAME="${1}"
-  local ORIGINAL_VERSION="${TMP_DIR}/original.mp4"
-  local DENOISED_VERSION="${TMP_DIR}/denoised.mp4"
-  if [ ! -f "${ORIGINAL_VERSION}" ]; then
-    cp "${FILENAME}" "${ORIGINAL_VERSION}"
-  fi
-  local SCENE_DIR="${TMP_DIR}/scenes"
-  mkdir -p "${SCENE_DIR}"
-  local FROM_FRAME=0
-  ffprobe -select_streams v -show_entries frame=pkt_pts -of compact=p=0:nk=1 -f lavfi "movie=$ORIGINAL_VERSION,setpts=N+1,select=gt(scene\,.2)" > "${TMP_DIR}/scenes.txt"
-  local FROM_FRAME=0
-  local COUNT=0
-  SCENES=`cat "${TMP_DIR}/scenes.txt"`
-  for SCENE_INDEX in $SCENES; do
-    denoise_scene "${ORIGINAL_VERSION}" $(echo "$FROM_FRAME-1" | bc) $(echo "1000000+$COUNT" | bc) $(echo "$SCENE_INDEX-2" | bc)
-    FROM_FRAME=${SCENE_INDEX}
-    COUNT=$(echo "$COUNT+1" | bc)
-  done
-  if [ $FROM_FRAME != 0 ]; then
-    denoise_scene "${ORIGINAL_VERSION}" $FROM_FRAME 9999999
-  fi
-  for f in "${TMP_DIR}/scenes"/*.m4v; do echo "file '$f'" >> "${TMP_DIR}/mylist.txt"; done
-  local FFMPEG_CONCAT_PARAMS=()
-  FFMPEG_CONCAT_PARAMS+=(-f "concat")
-  FFMPEG_CONCAT_PARAMS+=(-safe "0")
-  FFMPEG_CONCAT_PARAMS+=(-i "${TMP_DIR}/mylist.txt")
-  FFMPEG_CONCAT_PARAMS+=(-i "${ORIGINAL_VERSION}")
-  FFMPEG_CONCAT_PARAMS+=(-map "0:v:0")
-  FFMPEG_CONCAT_PARAMS+=(-c:v copy)
-  FFMPEG_CONCAT_PARAMS+=(-map "1:a:0")
-  FFMPEG_CONCAT_PARAMS+=(-c:a aac)
-  FFMPEG_CONCAT_PARAMS+=(-filter:a "aresample=async=1:min_hard_comp=0.100000:first_pts=0")
-  FFMPEG_CONCAT_PARAMS+=(-ab "192k")
-  FFMPEG_CONCAT_PARAMS+=(-ac 2)
-  FFMPEG_CONCAT_PARAMS+=(-ar 44100)
-  FFMPEG_CONCAT_PARAMS+=(-y)
-  FFMPEG_CONCAT_PARAMS+=("${DENOISED_VERSION}")
-  if ffmpeg ${FFMPEG_CONCAT_PARAMS[@]}; then
-    echo "successful stabilization!!"
-  else
-    echo "failed stabilization :-("
-
-  fi
-  rm -rf "${TMP_DIR}/scenes"
-}
-optimize () {
-  local INPUT_TITLE="$(getTitle)"
+optimize () {  
+  local INPUT_DIR="$(getInputDir)"
+  local TITLE="$(getTitle)"
   local INPUT_WIDTH="$(getInputWidth)"
   local INPUT_HEIGHT="$(getInputHeight)"
   if [ "${INPUT_WIDTH}" == "1280" ] && [ "${INPUT_HEIGHT}" == "720" ]; then
-    echo -e "${SUCCESS_FONT}### ${INPUT_TITLE}.mp4 has already been optimized.${RESET_FONT}"
-    downsample
+    echo -e "${SUCCESS_FONT}### ${TITLE}.mp4 has already been optimized.${RESET_FONT}"
+    downsample "${INPUT_DIR}/${TITLE}/${TITLE}.mp4"
   else
-    echo -e "${ALERT_FONT}### Optimizing ${INPUT_TITLE}.mp4${RESET_FONT}"
-    initTmpDirs
-    local INPUT_FPS="$(getInputFps)"
-    local IS_DRY_RUN="$(getDryRun)"
-    local DENOISE_VIDEO="$(getDenoise)"
-    local STABILIZE_VIDEO="$(getStabilize)"
+    echo -e "${ALERT_FONT}### Optimizing ${TITLE}.mp4${RESET_FONT}"
     local INPUT_DIR="$(getInputDir)"
-    local TMP_DIR="$(getTmpDir)"
+    local CROP_VALUE="$(getCropValue)"
+    local IS_INPUT_PROGRESSIVE="$(isInputProgressive)"
+    local DENOISE_VIDEO="$(getDenoise)"
+    local INPUT_PIX_FMT="$(getInputPixFmt)"
+    local PRESET="$(getPreset)"
+    local PRESET_GROUP="$(getPresetGroup)"
+    local INPUT_COLOR_PRIMITIVES="$(getInputColorPrimitives)"
+    local INPUT_FPS="$(getInputFps)"
+    local VIDEO_CODEC_LIB="$(getVideoCodecLib)"
     local VIDEO_BITRATE="$(getVideoBitrate)"
     local VIDEO_BUFFER_BITRATE="$(getVideoBufferBitrate)"
-    local ORIGINAL_VERSION="${TMP_DIR}/original.mp4"
-    local DENOISED_VERSION="${TMP_DIR}/denoised.mp4"
-    local OPTIMIZED_VERSION="${TMP_DIR}/optimized.mp4"
-    echo "${ORIGINAL_VERSION}"
-    echo "${DENOISED_VERSION}"
-    echo "${OPTIMIZED_VERSION}"
-    if [ "${IS_DRY_RUN}" == "false" ]; then
-      if [ "${DENOISE_VIDEO}" == "true" ] || [ "${STABILIZE_VIDEO}" == "true" ]; then
-        denoise "${filename}"
-      fi
-    fi
-    local INPUT_PIX_FMT="$(getInputPixFmt)"
-    local INPUT_COLOR_PRIMITIVES="$(getInputColorPrimitives)"
-    local INPUT_VIDEO_CODEC_LIB="$(getVideoCodecLib)"
-    local INPUT_VIDEO_PROFILE="$(getVideoProfile)"
+    local VIDEO_PROFILE="$(getVideoProfile)"
     local FORCE_AVC="$(getForceAvc)"
+    local FORCE_8_BIT="$(getForce8bit)"
     local INPUT_AUDIO_CHANNELS="$(getInputAudioChannels)"
-    local IS_FDK_AAC_INSTALLED="$(isFdkAacInstalled)"
-    
-    local FFMPEG_OPTIMIZE_PARAMS=()
-    if [ -f "${DENOISED_VERSION}" ]; then
-      FFMPEG_OPTIMIZE_PARAMS+=(-i "${DENOISED_VERSION}")
-    else
-      FFMPEG_OPTIMIZE_PARAMS+=(-i "${ORIGINAL_VERSION}")
-    fi
-    FFMPEG_OPTIMIZE_PARAMS+=(-i "${ORIGINAL_VERSION}")
-    if [ "$(getProduceSample)" == "true" ]; then
-      echo -e "${ALERT_FONT}### Producing 30 second sample.${RESET_FONT}"
-      FFMPEG_OPTIMIZE_PARAMS+=(-ss "00:00:00")
-      FFMPEG_OPTIMIZE_PARAMS+=(-to "00:00:30")
-    fi
-    FFMPEG_OPTIMIZE_PARAMS+=(-map "0:v:0")
-    FFMPEG_OPTIMIZE_PARAMS+=(-map "-0:t") # remove attachments
+    local CRF=""
     local VIDEO_FILTER=""
-    # denoised version is always in yuv420p10le
-    if [ ! -f "${DENOISED_VERSION}" ] && [ "${INPUT_PIX_FMT}" != "yuv420p10le" ]; then
-      VIDEO_FILTER="format=yuv420p10le,"
+
+    # Calculate CRF
+    if [ "${PRESET_GROUP}" == "1" ]; then
+      CRF="20"
+    elif [ "${PRESET_GROUP}" == "2" ]; then
+      CRF="16"
+    else
+      CRF="10"
     fi
+
+    # Construct Video Filter
+    VIDEO_FILTER=""
+    if [ "${IS_INPUT_PROGRESSIVE}" == "false" ]; then
+      # VIDEO_FILTER="${VIDEO_FILTER}yadif,"
+      # http://macilatthefront.blogspot.com/2017/04/deinterlacing-hd-footage-without-losing.html
+      VIDEO_FILTER="${VIDEO_FILTER}bwdif,"
+      # http://wp.xin.at/archives/5287
+      # VIDEO_FILTER="${VIDEO_FILTER}nnedi=weights=nnedi3_weights.bin:field='tf':nsize='s48x6':nns='n256':pscrn='new',"
+    fi
+    # Crop Video. No need to wast resolution here when PLEX lets us use anamorphic scaling in 720p.
+    if [ "${CROP_VALUE}" != "crop=${INPUT_WIDTH}:${INPUT_HEIGHT}:0:0" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}${CROP_VALUE},"
+    fi
+    # Denoise Video. Pixel format should end up in yuv420p10le.
+    if [ "${DENOISE_VIDEO}" == "false" ]; then
+      if [ "${INPUT_PIX_FMT}" != "yuv420p10le" ]; then
+        VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p10le,"
+      fi
+    elif [ "${PRESET_GROUP}" == "1" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}hqdn3d=2:2:9:9,"
+      if [ "${INPUT_PIX_FMT}" != "yuv420p10le" ]; then
+        VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p10le,"
+      fi
+    elif [ "${INPUT_PIX_FMT}" != "yuv420p" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p,nlmeans='1.0:7:5:3:3',format=yuv420p10le,"
+    else
+      VIDEO_FILTER="${VIDEO_FILTER}nlmeans='1.0:7:5:3:3',format=yuv420p10le,"
+    fi
+    # Migrate Video to 720p colorspace. Not doing so will cause playback issues on some players.
     if [ "${INPUT_COLOR_PRIMITIVES}" == "unknown" ]; then
       if [ "${INPUT_HEIGHT}" -gt "720" ]; then
         VIDEO_FILTER="${VIDEO_FILTER}colorspace=bt709:iall=bt2020:fast=1,"
@@ -393,68 +276,90 @@ optimize () {
     elif [ "${INPUT_COLOR_PRIMITIVES}" != "bt709" ]; then
       VIDEO_FILTER="${VIDEO_FILTER}colorspace=bt709:iall=${INPUT_COLOR_PRIMITIVES}:fast=1,"
     fi
-    if [ "${INPUT_WIDTH}" -lt "1280" ] && [ "${INPUT_HEIGHT}" -lt "720" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih*2:flags=neighbor,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
-    elif [ "${INPUT_WIDTH}" -lt "1280" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih:flags=neighbor,transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
-    elif [ "${INPUT_HEIGHT}" -lt "720" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw:h=ih*2:flags=neighbor,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',"
-    fi
-    if [ "${INPUT_WIDTH}" -lt "640" ] && [ "${INPUT_HEIGHT}" -lt "360" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih*2:flags=neighbor,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
-    elif [ "${INPUT_WIDTH}" -lt "640" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih:flags=neighbor,transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
-    elif [ "${INPUT_HEIGHT}" -lt "360" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw:h=ih*2:flags=neighbor,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',"
-    fi
-    if [ "$(getForce8bit)" != "true" ]; then
+    # Scale Video to maximum 720p resolution. Meaning 1280×720px with no black bars.
+    # Only use nural network AI scaling when preset is not: ultrafast, superfast, veryfast, faster
+    if [ "${PRESET_GROUP}" != "1" ]; then
+      if [ "${INPUT_WIDTH}" -lt "1280" ] && [ "${INPUT_HEIGHT}" -lt "720" ]; then
+        VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih*2:flags=print_info+spline+full_chroma_inp+full_chroma_int,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
+      elif [ "${INPUT_WIDTH}" -lt "1280" ]; then
+        VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih:flags=print_info+spline+full_chroma_inp+full_chroma_int,transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
+      elif [ "${INPUT_HEIGHT}" -lt "720" ]; then
+        VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw:h=ih*2:flags=print_info+spline+full_chroma_inp+full_chroma_int,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',"
+      fi
       VIDEO_FILTER="${VIDEO_FILTER}scale=w=1280:h=720:flags=print_info+spline+full_chroma_inp+full_chroma_int,"
-    elif [ "$(isZscaleInstalled)" == "true" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}zscale=w=1280:h=720:f=spline36:r=full:dither=ordered,format=yuv420p,"
     else
-      echo -e "${INFO_FONT}### ZScale is not installed, falling back to Scale.${RESET_FONT}"
-      echo -e "${INFO_FONT}###   To install ZScale on MacOS:${RESET_FONT}"
-      echo -e "${INFO_FONT}###     brew uninstall ffmpeg${RESET_FONT}"
-      echo -e "${INFO_FONT}###     brew tap homebrew-ffmpeg/ffmpeg${RESET_FONT}"
-      echo -e "${INFO_FONT}###     brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-zimg --HEAD${RESET_FONT}"
-      VIDEO_FILTER="${VIDEO_FILTER}scale=w=1280:h=720:flags=print_info+spline+full_chroma_inp+full_chroma_int,format=yuv420p,"
+      VIDEO_FILTER="${VIDEO_FILTER}scale=w=1280:h=720,"
     fi
-    VIDEO_FILTER="${VIDEO_FILTER}hqdn3d=1:1:7:7"
+    # Convert back to 8bit only when forced to.
+    if [ "${FORCE_8_BIT}" == "true" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p,"
+    fi
+    # Lightly run denoising to clean up any jitters created by scaling.
+    VIDEO_FILTER="${VIDEO_FILTER}hqdn3d=0:0:7:7"
+
     echo -e "${INFO_FONT}### Video Filter: $VIDEO_FILTER${RESET_FONT}"
-    FFMPEG_OPTIMIZE_PARAMS+=(-vf "$VIDEO_FILTER")
-    FFMPEG_OPTIMIZE_PARAMS+=(-vsync 1)
-    FFMPEG_OPTIMIZE_PARAMS+=(-vcodec "${INPUT_VIDEO_CODEC_LIB}")
-    echo -e "${INFO_FONT}### Video Codec: ${INPUT_VIDEO_CODEC_LIB}${RESET_FONT}"
-    FFMPEG_OPTIMIZE_PARAMS+=(-r "${INPUT_FPS}")
-    echo -e "${INFO_FONT}### Video FPS: ${INPUT_FPS}${RESET_FONT}"
-    FFMPEG_OPTIMIZE_PARAMS+=(-crf "16")
-    echo -e "${INFO_FONT}### Video CRF: 16${RESET_FONT}"
-    FFMPEG_OPTIMIZE_PARAMS+=(-maxrate "${VIDEO_BITRATE}k")
-    FFMPEG_OPTIMIZE_PARAMS+=(-bufsize "${VIDEO_BUFFER_BITRATE}k")
-    FFMPEG_OPTIMIZE_PARAMS+=(-preset "slow")
-    echo -e "${INFO_FONT}### Video Preset: slow${RESET_FONT}"
-    FFMPEG_OPTIMIZE_PARAMS+=(-profile:v "${INPUT_VIDEO_PROFILE}")
-    if [ "${FORCE_AVC}" == "true" ]; then
-      FFMPEG_OPTIMIZE_PARAMS+=(-level:v 4.0)
-      FFMPEG_OPTIMIZE_PARAMS+=(-g 60)
-      FFMPEG_OPTIMIZE_PARAMS+=(-sc_threshold 0)
-    else
-      FFMPEG_OPTIMIZE_PARAMS+=(-x265-params "level-idc=40:keyint=60:min-keyint=60:scenecut=0")
+    if [ "$(getDryRun)" == "false" ]; then
+      initTmpDirs
+      local TMP_DIR="$(getTmpDir)"
+      local TMP_FILENAME="$(getTmpDir)/original.mp4"
+      cp "${filename}" "${TMP_FILENAME}"
+      # Set FFMPEG Parameters
+      local FFMPEG_PARAMS=()
+      FFMPEG_PARAMS+=(-i "${TMP_FILENAME}")
+      FFMPEG_PARAMS+=(-map "0:v:0")
+      FFMPEG_PARAMS+=(-vf "${VIDEO_FILTER}")
+      FFMPEG_PARAMS+=(-vsync 1)
+      FFMPEG_PARAMS+=(-vcodec "${VIDEO_CODEC_LIB}")
+      FFMPEG_PARAMS+=(-r "${INPUT_FPS}")
+      FFMPEG_PARAMS+=(-crf "${CRF}")
+      FFMPEG_PARAMS+=(-maxrate "${VIDEO_BITRATE}k")
+      FFMPEG_PARAMS+=(-bufsize "${VIDEO_BUFFER_BITRATE}k")
+      FFMPEG_PARAMS+=(-preset "${PRESET}")
+      FFMPEG_PARAMS+=(-profile:v "${VIDEO_PROFILE}")
+      if [ "${FORCE_AVC}" == "true" ]; then
+        FFMPEG_PARAMS+=(-level:v 4.0)
+        FFMPEG_PARAMS+=(-g 60)
+        FFMPEG_PARAMS+=(-sc_threshold 0)
+      else
+        FFMPEG_PARAMS+=(-x265-params "level-idc=40:keyint=60:min-keyint=60:scenecut=0")
+      fi
+      FFMPEG_PARAMS+=(-map "0:a:0")
+      FFMPEG_PARAMS+=(-c:a aac)
+      FFMPEG_PARAMS+=(-filter:a "aresample=async=1:min_hard_comp=0.100000:first_pts=0")
+      if [ "${INPUT_AUDIO_CHANNELS}" == "1" ] || [ "${INPUT_AUDIO_CHANNELS}" == "2" ]; then
+        FFMPEG_PARAMS+=(-ab "192k")
+        FFMPEG_PARAMS+=(-ac 2)
+      else
+        FFMPEG_PARAMS+=(-ab "448k")
+        FFMPEG_PARAMS+=(-ac "${INPUT_AUDIO_CHANNELS}")
+      fi
+      FFMPEG_PARAMS+=(-ar 44100)
+      FFMPEG_PARAMS+=(-movflags +faststart)
+      FFMPEG_PARAMS+=(-f "mp4")
+      FFMPEG_PARAMS+=(-y)
+      FFMPEG_PARAMS+=("${TMP_DIR}/optimized.mp4")
+      if ffmpeg ${FFMPEG_PARAMS[@]}; then
+        mkdir -p "$(getInputDir)$(getTitle)/orig"
+        mv "$filename" "${INPUT_DIR}/${TITLE}/orig/${TITLE}.mp4"
+        cp "${TMP_DIR}/optimized.mp4" "${INPUT_DIR}/${TITLE}/${TITLE}.mp4"
+        if [ "$(getDiscardOriginal)" == "true" ]; then
+          rm -rf "${INPUT_DIR}/${TITLE}/orig"
+        fi
+        rm -rf "${TMP_DIR}"
+        downsample "${INPUT_DIR}/${TITLE}/${TITLE}.mp4"
+      fi
     fi
-    FFMPEG_OPTIMIZE_PARAMS+=(-map "1:a:0")
-    FFMPEG_OPTIMIZE_PARAMS+=(-c:a aac)
-    FFMPEG_OPTIMIZE_PARAMS+=(-filter:a "aresample=async=1:min_hard_comp=0.100000:first_pts=0")
-    if [ "${INPUT_AUDIO_CHANNELS}" == "1" ] || [ "${INPUT_AUDIO_CHANNELS}" == "2" ]; then
-      FFMPEG_OPTIMIZE_PARAMS+=(-ab "192k")
-      FFMPEG_OPTIMIZE_PARAMS+=(-ac 2)
-    else
-      FFMPEG_OPTIMIZE_PARAMS+=(-ab "448k")
-      FFMPEG_OPTIMIZE_PARAMS+=(-ac "${INPUT_AUDIO_CHANNELS}")
-    fi
-    FFMPEG_OPTIMIZE_PARAMS+=(-ar 44100)
-    FFMPEG_OPTIMIZE_PARAMS+=(-movflags +faststart)
-    FFMPEG_OPTIMIZE_PARAMS+=(-f "mp4")
-    FFMPEG_OPTIMIZE_PARAMS+=(-y "${OPTIMIZED_VERSION}")
+  fi
+}
+downsample () {
+  local FILENAME="${1}"
+  local INPUT_DIR="$(getInputDir)"
+  local INPUT_TITLE="$(getTitle)"
+  if [ -f "${INPUT_DIR}/${INPUT_TITLE}/${INPUT_TITLE} - 48k audio.mp4" ]; then
+    echo -e "${SUCCESS_FONT}### ${INPUT_TITLE}.mp4 audio has already been downsampled.${RESET_FONT}"
+  else
+    echo -e "${ALERT_FONT}### Downsample ${INPUT_TITLE}.mp4 audio to 48k.${RESET_FONT}"
+    local IS_FDK_AAC_INSTALLED="$(isFdkAacInstalled)"
     if [ "${IS_FDK_AAC_INSTALLED}" == "false" ]; then
       echo -e "${INFO_FONT}### AAC HE V2 is not installed, falling back to AAC Mono for 48k audio version.${RESET_FONT}"
       echo -e "${INFO_FONT}###   To install AAC HE V2 on MacOS:${RESET_FONT}"
@@ -462,59 +367,39 @@ optimize () {
       echo -e "${INFO_FONT}###     brew tap homebrew-ffmpeg/ffmpeg${RESET_FONT}"
       echo -e "${INFO_FONT}###     brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-fdk-aac --HEAD${RESET_FONT}"
     fi
-    if [ "${IS_DRY_RUN}" == "false" ]; then
-      if [ ! -f "${ORIGINAL_VERSION}" ]; then
-        cp "${filename}" "${ORIGINAL_VERSION}"
+    if [ "$(getDryRun)" == "false" ]; then
+      initTmpDirs
+      local TMP_DIR="$(getTmpDir)"
+      local TMP_FILENAME="$(getTmpDir)/original.mp4"
+      cp "${FILENAME}" "${TMP_FILENAME}"
+      local FFMPEG_DOWNSAMPLE_PARAMS=()
+      FFMPEG_DOWNSAMPLE_PARAMS+=(-i "${TMP_FILENAME}")
+      FFMPEG_DOWNSAMPLE_PARAMS+=(-map "0:v")
+      FFMPEG_DOWNSAMPLE_PARAMS+=(-map "0:a")
+      FFMPEG_DOWNSAMPLE_PARAMS+=(-c:v "copy")
+      if [ "${IS_FDK_AAC_INSTALLED}" == "true" ]; then
+        FFMPEG_DOWNSAMPLE_PARAMS+=(-c:a libfdk_aac)
+        FFMPEG_DOWNSAMPLE_PARAMS+=(-profile:a aac_he_v2)
+        FFMPEG_DOWNSAMPLE_PARAMS+=(-filter:a "aresample=async=1:min_hard_comp=0.100000:first_pts=0")
+        FFMPEG_DOWNSAMPLE_PARAMS+=(-ac 2)
+      else
+        FFMPEG_DOWNSAMPLE_PARAMS+=(-c:a aac)
+        FFMPEG_DOWNSAMPLE_PARAMS+=(-filter:a "aresample=async=1:min_hard_comp=0.100000:first_pts=0")
+        FFMPEG_DOWNSAMPLE_PARAMS+=(-ac 1)
       fi
-      if ffmpeg ${FFMPEG_OPTIMIZE_PARAMS[@]}; then
-        mkdir -p "$(getInputDir)$(getTitle)/orig"
-        mv "$filename" "${INPUT_DIR}/${INPUT_TITLE}/orig/${INPUT_TITLE}.mp4"
-        if [ "$(getDiscardOriginal)" == "true" ]; then
-          rm -rf "${INPUT_DIR}/${INPUT_TITLE}/orig"
-        fi
-        cp "$OPTIMIZED_VERSION" "${INPUT_DIR}/${INPUT_TITLE}/${INPUT_TITLE}.mp4"
-        rm -rf "$(getTmpDir)"
-        downsample
+      FFMPEG_DOWNSAMPLE_PARAMS+=(-ab "48k")
+      FFMPEG_DOWNSAMPLE_PARAMS+=(-ar 44100)
+      FFMPEG_DOWNSAMPLE_PARAMS+=(-movflags +faststart)
+      FFMPEG_DOWNSAMPLE_PARAMS+=(-f "mp4")
+      FFMPEG_DOWNSAMPLE_PARAMS+=(-y)
+      FFMPEG_DOWNSAMPLE_PARAMS+=("${TMP_DIR}/downsample.mp4")
+      if ffmpeg ${FFMPEG_DOWNSAMPLE_PARAMS[@]}; then
+        cp "${TMP_DIR}/downsample.mp4" "${INPUT_DIR}/${INPUT_TITLE}/${INPUT_TITLE} - 48k audio.mp4"
+        rm -rf "${TMP_DIR}"
       fi
+      rm -rf "${TMP_DIR}"
     fi
   fi
-}
-downsample () {
-    if [ -f "$(getInputDir)/$(getTitle)/$(getTitle) - 48k audio.mp4" ]; then
-        echo -e "${SUCCESS_FONT}### $(getTitle).mp4 audio has already been downsampled.${RESET_FONT}"
-    else
-        echo -e "${ALERT_FONT}### Downsample $(getTitle).mp4 audio to 48k.${RESET_FONT}"
-        initTmpDirs
-        originalVersion="$(getTmpDir)/original.mp4"
-        downsampleVersion="$(getTmpDir)/downsample.mp4"
-        local FFMPEG_DOWNSAMPLE_PARAMS=()
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-i "$originalVersion")
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-map "0:v")
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-map "0:a")
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-c:v "copy")
-        if [ "${IS_FDK_AAC_INSTALLED}" == "true" ]; then
-          FFMPEG_DOWNSAMPLE_PARAMS+=(-c:a libfdk_aac)
-          FFMPEG_DOWNSAMPLE_PARAMS+=(-profile:a aac_he_v2)
-          FFMPEG_DOWNSAMPLE_PARAMS+=(-filter:a "aresample=async=1:min_hard_comp=0.100000:first_pts=0")
-          FFMPEG_DOWNSAMPLE_PARAMS+=(-ac 2)
-        else
-          FFMPEG_DOWNSAMPLE_PARAMS+=(-c:a aac)
-          FFMPEG_DOWNSAMPLE_PARAMS+=(-filter:a "aresample=async=1:min_hard_comp=0.100000:first_pts=0")
-          FFMPEG_DOWNSAMPLE_PARAMS+=(-ac 1)
-        fi
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-ab "48k")
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-ar 44100)
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-movflags +faststart)
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-f "mp4")
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-y "$downsampleVersion")
-        if [ "${IS_DRY_RUN}" == "false" ]; then
-          cp "$filename" "$originalVersion"
-          if ffmpeg ${FFMPEG_DOWNSAMPLE_PARAMS[@]}; then
-            cp "$downsampleVersion" "$(getInputDir)/$(getTitle)/$(getTitle) - 48k audio.mp4"
-          fi
-          rm -rf "$(getTmpDir)"
-        fi
-    fi
 }
 concat () {
   initTmpDirs
@@ -660,18 +545,18 @@ concat () {
       videoFilter="${videoFilter}colorspace=bt709:iall=${INPUT_COLOR_PRIMITIVES}:fast=1,"
     fi
     if [ "${INPUT_WIDTH}" -lt "1281" ] && [ "${INPUT_HEIGHT}" -lt "721" ]; then
-      videoFilter="${videoFilter}scale=w=iw*2:h=ih*2:flags=neighbor,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
+      videoFilter="${videoFilter}scale=w=iw*2:h=ih*2:flags=spline,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
     elif [ "${INPUT_WIDTH}" -lt "1281" ]; then
-      videoFilter="${videoFilter}scale=w=iw*2:h=ih:flags=neighbor,transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
+      videoFilter="${videoFilter}scale=w=iw*2:h=ih:flags=spline,transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
     elif [ "${INPUT_HEIGHT}" -lt "721" ]; then
-      videoFilter="${videoFilter}scale=w=iw:h=ih*2:flags=neighbor,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',"
+      videoFilter="${videoFilter}scale=w=iw:h=ih*2:flags=spline,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',"
     fi
     if [ "${INPUT_WIDTH}" -lt "641" ] && [ "${INPUT_HEIGHT}" -lt "361" ]; then
-      videoFilter="${videoFilter}scale=w=iw*2:h=ih*2:flags=neighbor,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
+      videoFilter="${videoFilter}scale=w=iw*2:h=ih*2:flags=spline,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
     elif [ "${INPUT_WIDTH}" -lt "641" ]; then
-      videoFilter="${videoFilter}scale=w=iw*2:h=ih:flags=neighbor,transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
+      videoFilter="${videoFilter}scale=w=iw*2:h=ih:flags=spline,transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
     elif [ "${INPUT_HEIGHT}" -lt "361" ]; then
-      videoFilter="${videoFilter}scale=w=iw:h=ih*2:flags=neighbor,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',"
+      videoFilter="${videoFilter}scale=w=iw:h=ih*2:flags=spline,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',"
     fi
     videoFilter="${videoFilter}scale=(iw*sar)*min(${MAX_INPUT_WIDTH}/(iw*sar)\,${MAX_INPUT_HEIGHT}/ih):ih*min(${MAX_INPUT_WIDTH}/(iw*sar)\,${MAX_INPUT_HEIGHT}/ih):flags=print_info+spline+full_chroma_inp+full_chroma_int,"
     if [ "$(getForce8bit)" == "true" ]; then
@@ -682,8 +567,12 @@ concat () {
     ffmpegParams+=(-vsync 1)
     ffmpegParams+=(-vcodec "libx264")
     ffmpegParams+=(-r "${INPUT_FPS}")
-    ffmpegParams+=(-crf "6")
-    ffmpegParams+=(-preset "slow")
+    if [ "$(getPresetGroup)" == "1" ]; then
+      ffmpegParams+=(-crf "20")
+    else
+      ffmpegParams+=(-crf "6")
+    fi
+    ffmpegParams+=(-preset "$(getPreset)")
     ffmpegParams+=(-profile:v "high10")
     ffmpegParams+=(-level:v 6.1)
     ffmpegParams+=(-g 60)
@@ -717,10 +606,10 @@ concat () {
 }
 # initiate the temporary directories
 initTmpDirs () {
-	# create a temp directory if one does not exist
-	tmpDir=$(mktemp -d 2>/dev/null || mktemp -d -t 'pleximize')
-	# create secondary directory in temp directory
-	mkdir -p "$tmpDir/tmp"
+  # create a temp directory if one does not exist
+  tmpDir=$(mktemp -d 2>/dev/null || mktemp -d -t 'pleximize')
+  # create secondary directory in temp directory
+  mkdir -p "$tmpDir/tmp"
 }
 getFilename () {
         local theFilename=""
@@ -778,6 +667,19 @@ getDenoise() {
 getStabilize() {
   echo $stabilize
 }
+# returns the preset to use. Options: ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow, placebo
+getPreset() {
+  echo $preset
+}
+getPresetGroup() {
+  if [ "$preset" == "ultrafast" ] || [ "$preset" == "superfast" ] || [ "$preset" == "veryfast" ] || [ "$preset" == "faster" ]; then
+    echo "1"
+  elif [ "$preset" == "slower" ] || [ "$preset" == "veryslow" ] || [ "$preset" == "placebo" ]; then
+    echo "3"
+  else
+    echo "2"
+  fi
+}
 # get the video profile
 getVideoProfile () {
     if [ "$(getForce8bit)" == "true" ]; then
@@ -809,15 +711,15 @@ getVideoCodec () {
 }
 # get the video codec library
 getVideoCodecLib () {
-	if [ "$(getForceAvc)" == "true" ]; then
-		echo "libx264"
-	else
-		echo "libx265"
-	fi
+  if [ "$(getForceAvc)" == "true" ]; then
+    echo "libx264"
+  else
+    echo "libx265"
+  fi
 }
 # get the input file
 getInputDir () {
-	echo $inputDir
+  echo $inputDir
 }
 # get the input file's audio channel
 getInputAudioChannels () {
@@ -851,6 +753,10 @@ getInputDar () {
         local darHeight=${dar##*:}
         dar="$darWidth/$darHeight"
         echo $dar
+}
+getCropValue() {
+  local CROP_VALUE=$(ffmpeg -t 1000 -i "${filename}" -vf "select=not(mod(n\,1000)),cropdetect=36:1:0" -f null - 2>&1 | awk '/crop/ { print $NF }' | tail -1)
+  echo $CROP_VALUE
 }
 # get the input file's FPS
 getInputFps () {
@@ -896,9 +802,21 @@ getInputFps () {
           echo "30000/1001"
         fi
 }
-isZscaleInstalled () {
-  local FFMPEG_VERSION=$((ffmpeg -version) 2>&1)
-  if [[ "${FFMPEG_VERSION}" == *"--enable-libzimg"* ]]; then
+# returns true when the input video is progressive, otherwise returns false
+# untested
+isInputProgressive() {
+  local IDET=$(ffmpeg -i "${filename}" -vf "idet" -f null - 2>&1 | tail -1)
+  local TFF="${IDET##*TFF:}"
+  TFF="${TFF%BFF:*}"
+  TFF=$(echo "$TFF" | bc)
+  local BFF="${IDET##*BFF:}"
+  BFF="${BFF%Progressive:*}"
+  BFF=$(echo "$BFF" | bc)
+  local PROGRESSIVE="${IDET##*Progressive:}"
+  PROGRESSIVE="${PROGRESSIVE%Undetermined:*}"
+  PROGRESSIVE=$(echo "$PROGRESSIVE" | bc)
+  local INTERLACE=$(echo "$TFF+$BFF" | bc)
+  if [ "${PROGRESSIVE}" -gt "${INTERLACE}" ]; then
     echo "true"
   else
     echo "false"
