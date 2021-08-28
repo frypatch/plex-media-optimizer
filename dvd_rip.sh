@@ -196,34 +196,153 @@ main () {
     fi
   done
 }
-optimize () {  
+getVideoFilter() {
+  local FORCE_720P=${1}
+  local FILE_NAME=${2}
+  local INPUT_WIDTH="$(getInputWidth "$FILE_NAME")"
+  local INPUT_HEIGHT="$(getInputHeight "$FILE_NAME")"
+  local CROP_VALUE="$(getCropValue "$FILE_NAME")"
+  local IS_INPUT_PROGRESSIVE="$(isInputProgressive "$FILE_NAME")"
+  local DENOISE_VIDEO="$(getDenoise)"
+  local INPUT_PIX_FMT="$(getInputPixFmt "$FILE_NAME")"
+  local PRESET_GROUP="$(getPresetGroup)"
+  local INPUT_COLOR_PRIMITIVES="$(getInputColorPrimitives "$FILE_NAME")"
+  local INPUT_FPS="$(getInputFps "$FILE_NAME")"
+  local FORCE_8_BIT="$(getForce8bit)"
+  local OUTPUT_SCALING_ALGO=""
+  local CROP_WIDTH="0"
+  local CROP_HEIGHT="0"
+  local VIDEO_FILTER=""
+
+  if [ "${PRESET_GROUP}" == "1" ]; then
+    OUTPUT_SCALING_ALGO="bicubic"
+  else
+    OUTPUT_SCALING_ALGO="spline"
+  fi
+
+  # Calculate the crop width
+  # everything after the first = is considered the crop width
+  CROP_WIDTH="${CROP_VALUE#*=}"
+  # everything before the first : is considered the crop width
+  CROP_WIDTH="${CROP_WIDTH%%:*}"
+
+  # Calculate the crop height
+  # everything after the first : is considered the crop height
+  CROP_HEIGHT="${CROP_VALUE#*:}"
+  # everything before the first : is considered the crop height
+  CROP_HEIGHT="${CROP_HEIGHT%%:*}"
+
+  # Construct Video Filter
+  if [ "${IS_INPUT_PROGRESSIVE}" == "false" ]; then
+    # VIDEO_FILTER="${VIDEO_FILTER}yadif,"
+    # http://macilatthefront.blogspot.com/2017/04/deinterlacing-hd-footage-without-losing.html
+    VIDEO_FILTER="${VIDEO_FILTER}bwdif,"
+    # http://wp.xin.at/archives/5287
+    # VIDEO_FILTER="${VIDEO_FILTER}nnedi=weights=nnedi3_weights.bin:field='tf':nsize='s48x6':nns='n256':pscrn='new',"
+  fi
+  # Crop Video. No need to wast resolution here when PLEX lets us use anamorphic scaling in 720p.
+  if [ "${CROP_VALUE}" != "crop=${INPUT_WIDTH}:${INPUT_HEIGHT}:0:0" ]; then
+    VIDEO_FILTER="${VIDEO_FILTER}${CROP_VALUE},"
+  fi
+  if [ "${PRESET_GROUP}" != "1" ] && [ "${CROP_HEIGHT}" -lt "376" ] && [ "${CROP_HEIGHT}" -gt "360" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}crop=${CROP_WIDTH}:360"
+  fi
+  # Denoise Video. Pixel format should end up in yuv420p10le.
+  if [ "${DENOISE_VIDEO}" == "false" ]; then
+    if [ "${INPUT_PIX_FMT}" != "yuv420p10le" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p10le,"
+    fi
+  elif [ "${PRESET_GROUP}" == "1" ]; then
+    VIDEO_FILTER="${VIDEO_FILTER}hqdn3d=2:2:9:9,"
+    if [ "${INPUT_PIX_FMT}" != "yuv420p10le" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p10le,"
+    fi
+  elif [ "${INPUT_PIX_FMT}" != "yuv420p" ]; then
+    VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p,nlmeans='1.0:7:5:3:3',format=yuv420p10le,"
+  else
+    VIDEO_FILTER="${VIDEO_FILTER}nlmeans='1.0:7:5:3:3',format=yuv420p10le,"
+  fi
+  # Migrate Video to 720p colorspace. Not doing so will cause playback issues on some players.
+  if [ "${INPUT_COLOR_PRIMITIVES}" == "unknown" ]; then
+    if [ "${INPUT_HEIGHT}" -gt "720" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}colorspace=bt709:iall=bt2020:fast=1,"
+    elif [ "${INPUT_HEIGHT}" -gt "480" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}colorspace=bt709:iall=bt709:fast=1,"
+    elif [ "${INPUT_FPS}" == "25/1" ] || [ "${INPUT_FPS}" == "50/1" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}colorspace=bt709:iall=bt601-6-625:fast=1,"
+    else
+      VIDEO_FILTER="${VIDEO_FILTER}colorspace=bt709:iall=bt601-6-525:fast=1,"
+    fi
+  elif [ "${INPUT_COLOR_PRIMITIVES}" != "bt709" ]; then
+    VIDEO_FILTER="${VIDEO_FILTER}colorspace=bt709:iall=${INPUT_COLOR_PRIMITIVES}:fast=1,"
+  fi
+  # Double resolution when necessary
+  # Only use nural network AI super-resolution when preset is not: ultrafast, superfast, veryfast, faster
+  local OUTPUT_WIDTH="${CROP_WIDTH}"
+  local OUTPUT_HEIGHT="${CROP_HEIGHT}"
+  if [ "${CROP_WIDTH}" -lt "960" ] && [ "${CROP_HEIGHT}" -lt "548" ]; then
+    OUTPUT_WIDTH=$(echo "2*$CROP_WIDTH" | bc)
+    OUTPUT_HEIGHT=$(echo "2*$CROP_HEIGHT" | bc)
+    VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih*2:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int,"
+    if [ "${PRESET_GROUP}" != "1" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
+    fi
+  elif [ "${CROP_WIDTH}" -lt "960" ]; then
+    OUTPUT_WIDTH=$(echo "2*$CROP_WIDTH" | bc)
+    VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int,"
+    if [ "${PRESET_GROUP}" != "1" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
+    fi
+  elif [ "${CROP_HEIGHT}" -lt "548" ]; then
+    OUTPUT_HEIGHT=$(echo "2*$CROP_HEIGHT" | bc)
+    VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw:h=ih*2:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int,"
+    if [ "${PRESET_GROUP}" != "1" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',"
+    fi
+  fi
+  # Scale Video to 720p resolution. Meaning 1280×720px with no black bars.
+  if [ "${FORCE_720P}" == "true" ]; then
+    if [ "${OUTPUT_WIDTH}" -lt "960" ] || [ "${OUTPUT_WIDTH}" -gt "1280" ]; then
+      OUTPUT_WIDTH="1280"
+    fi
+    if [ "${OUTPUT_HEIGHT}" -lt "548" ] || [ "${OUTPUT_HEIGHT}" -gt "720" ]; then
+      OUTPUT_HEIGHT="720"
+    fi
+    if [ "${OUTPUT_WIDTH}" != "${CROP_WIDTH}" ] || [ "${OUTPUT_HEIGHT}" != "${CROP_HEIGHT}" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}scale=w=${OUTPUT_WIDTH}:h=${OUTPUT_HEIGHT}:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int,"
+    fi
+  fi
+  # Convert back to 8bit only when forced to.
+  if [ "${FORCE_8_BIT}" == "true" ]; then
+    VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p,"
+  fi
+  # Lightly run denoising to clean up any jitters created by scaling.
+  VIDEO_FILTER="${VIDEO_FILTER}hqdn3d=0:0:7:7"
+  echo "${VIDEO_FILTER}"
+}
+optimize () {
   local INPUT_DIR="$(getInputDir)"
   local TITLE="$(getTitle)"
-  local INPUT_WIDTH="$(getInputWidth)"
-  local INPUT_HEIGHT="$(getInputHeight)"
-  if [ "${INPUT_WIDTH}" == "1280" ] && [ "${INPUT_HEIGHT}" == "720" ]; then
+  local INPUT_BITRATE="$(getInputBitrate "$filename")"
+  local VIDEO_BITRATE="$(getVideoBitrate)"
+  local INPUT_WIDTH="$(getInputWidth "$filename")"
+  local INPUT_HEIGHT="$(getInputHeight "$filename")"
+  if [ "${INPUT_BITRATE}" -gt "500000" ] && [ "${INPUT_BITRATE}" -lt "${VIDEO_BITRATE}001" ] && [ "${INPUT_WIDTH}" -gt "959" ] && [ "${INPUT_WIDTH}" -lt "1281" ] && [ "${INPUT_HEIGHT}" -gt "547" ] && [ "${INPUT_HEIGHT}" -lt "721" ]; then
     echo -e "${SUCCESS_FONT}### ${TITLE}.mp4 has already been optimized.${RESET_FONT}"
     downsample "${INPUT_DIR}/${TITLE}/${TITLE}.mp4"
   else
     echo -e "${ALERT_FONT}### Optimizing ${TITLE}.mp4${RESET_FONT}"
     local INPUT_DIR="$(getInputDir)"
-    local CROP_VALUE="$(getCropValue)"
-    local IS_INPUT_PROGRESSIVE="$(isInputProgressive)"
-    local DENOISE_VIDEO="$(getDenoise)"
-    local INPUT_PIX_FMT="$(getInputPixFmt)"
     local PRESET="$(getPreset)"
     local PRESET_GROUP="$(getPresetGroup)"
-    local INPUT_COLOR_PRIMITIVES="$(getInputColorPrimitives)"
-    local INPUT_FPS="$(getInputFps)"
+    local INPUT_FPS="$(getInputFps "$filename")"
     local VIDEO_CODEC_LIB="$(getVideoCodecLib)"
-    local VIDEO_BITRATE="$(getVideoBitrate)"
     local VIDEO_BUFFER_BITRATE="$(getVideoBufferBitrate)"
     local VIDEO_PROFILE="$(getVideoProfile)"
     local FORCE_AVC="$(getForceAvc)"
-    local FORCE_8_BIT="$(getForce8bit)"
     local INPUT_AUDIO_CHANNELS="$(getInputAudioChannels)"
     local CRF=""
-    local VIDEO_FILTER=""
+    local VIDEO_FILTER="$(getVideoFilter "true" "$filename")"
 
     # Calculate CRF
     if [ "${PRESET_GROUP}" == "1" ]; then
@@ -233,69 +352,6 @@ optimize () {
     else
       CRF="10"
     fi
-
-    # Construct Video Filter
-    VIDEO_FILTER=""
-    if [ "${IS_INPUT_PROGRESSIVE}" == "false" ]; then
-      # VIDEO_FILTER="${VIDEO_FILTER}yadif,"
-      # http://macilatthefront.blogspot.com/2017/04/deinterlacing-hd-footage-without-losing.html
-      VIDEO_FILTER="${VIDEO_FILTER}bwdif,"
-      # http://wp.xin.at/archives/5287
-      # VIDEO_FILTER="${VIDEO_FILTER}nnedi=weights=nnedi3_weights.bin:field='tf':nsize='s48x6':nns='n256':pscrn='new',"
-    fi
-    # Crop Video. No need to wast resolution here when PLEX lets us use anamorphic scaling in 720p.
-    if [ "${CROP_VALUE}" != "crop=${INPUT_WIDTH}:${INPUT_HEIGHT}:0:0" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}${CROP_VALUE},"
-    fi
-    # Denoise Video. Pixel format should end up in yuv420p10le.
-    if [ "${DENOISE_VIDEO}" == "false" ]; then
-      if [ "${INPUT_PIX_FMT}" != "yuv420p10le" ]; then
-        VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p10le,"
-      fi
-    elif [ "${PRESET_GROUP}" == "1" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}hqdn3d=2:2:9:9,"
-      if [ "${INPUT_PIX_FMT}" != "yuv420p10le" ]; then
-        VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p10le,"
-      fi
-    elif [ "${INPUT_PIX_FMT}" != "yuv420p" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p,nlmeans='1.0:7:5:3:3',format=yuv420p10le,"
-    else
-      VIDEO_FILTER="${VIDEO_FILTER}nlmeans='1.0:7:5:3:3',format=yuv420p10le,"
-    fi
-    # Migrate Video to 720p colorspace. Not doing so will cause playback issues on some players.
-    if [ "${INPUT_COLOR_PRIMITIVES}" == "unknown" ]; then
-      if [ "${INPUT_HEIGHT}" -gt "720" ]; then
-        VIDEO_FILTER="${VIDEO_FILTER}colorspace=bt709:iall=bt2020:fast=1,"
-      elif [ "${INPUT_HEIGHT}" -gt "480" ]; then
-        VIDEO_FILTER="${VIDEO_FILTER}colorspace=bt709:iall=bt709:fast=1,"
-      elif [ "${INPUT_FPS}" == "25/1" ] || [ "${INPUT_FPS}" == "50/1" ]; then
-        VIDEO_FILTER="${VIDEO_FILTER}colorspace=bt709:iall=bt601-6-625:fast=1,"
-      else
-        VIDEO_FILTER="${VIDEO_FILTER}colorspace=bt709:iall=bt601-6-525:fast=1,"
-      fi
-    elif [ "${INPUT_COLOR_PRIMITIVES}" != "bt709" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}colorspace=bt709:iall=${INPUT_COLOR_PRIMITIVES}:fast=1,"
-    fi
-    # Scale Video to maximum 720p resolution. Meaning 1280×720px with no black bars.
-    # Only use nural network AI scaling when preset is not: ultrafast, superfast, veryfast, faster
-    if [ "${PRESET_GROUP}" != "1" ]; then
-      if [ "${INPUT_WIDTH}" -lt "1280" ] && [ "${INPUT_HEIGHT}" -lt "720" ]; then
-        VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih*2:flags=print_info+spline+full_chroma_inp+full_chroma_int,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
-      elif [ "${INPUT_WIDTH}" -lt "1280" ]; then
-        VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih:flags=print_info+spline+full_chroma_inp+full_chroma_int,transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
-      elif [ "${INPUT_HEIGHT}" -lt "720" ]; then
-        VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw:h=ih*2:flags=print_info+spline+full_chroma_inp+full_chroma_int,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',"
-      fi
-      VIDEO_FILTER="${VIDEO_FILTER}scale=w=1280:h=720:flags=print_info+spline+full_chroma_inp+full_chroma_int,"
-    else
-      VIDEO_FILTER="${VIDEO_FILTER}scale=w=1280:h=720,"
-    fi
-    # Convert back to 8bit only when forced to.
-    if [ "${FORCE_8_BIT}" == "true" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p,"
-    fi
-    # Lightly run denoising to clean up any jitters created by scaling.
-    VIDEO_FILTER="${VIDEO_FILTER}hqdn3d=0:0:7:7"
 
     echo -e "${INFO_FONT}### Video Filter: $VIDEO_FILTER${RESET_FONT}"
     if [ "$(getDryRun)" == "false" ]; then
@@ -401,7 +457,83 @@ downsample () {
     fi
   fi
 }
+concat_optimize() {
+  local INPUT_FILE_NAME="${1}"
+  local INPUT_WIDTH="$(getInputWidth "${INPUT_FILE_NAME}")"
+  local INPUT_HEIGHT="$(getInputHeight "${INPUT_FILE_NAME}")"
+  if [ "${INPUT_WIDTH}" -gt "959" ] && [ "${INPUT_HEIGHT}" -gt "547" ]; then
+    echo -e "${SUCCESS_FONT}### ${INPUT_FILE_NAME} has already been optimized.${RESET_FONT}"
+  else
+    local PRESET="$(getPreset)"
+    local PRESET_GROUP="$(getPresetGroup)"
+    local INPUT_FPS="$(getInputFps "${INPUT_FILE_NAME}")"
+    local VIDEO_FILTER="$(getVideoFilter "false" "${INPUT_FILE_NAME}")"
+    local CRF=""
+
+    # Calculate CRF
+    if [ "${PRESET_GROUP}" == "1" ]; then
+      CRF="20"
+    elif [ "${PRESET_GROUP}" == "2" ]; then
+      CRF="10"
+    else
+      CRF="6"
+    fi
+
+    echo -e "${ALERT_FONT}### Optimizing ${INPUT_FILE_NAME}${RESET_FONT}"
+    echo -e "${INFO_FONT}### Video Filter: $VIDEO_FILTER${RESET_FONT}"
+    if [ "$(getDryRun)" == "false" ]; then
+      initTmpDirs
+      local TMP_DIR="$(getTmpDir)"
+      local TMP_FILENAME="$(getTmpDir)/original.mp4"
+      cp "${INPUT_FILE_NAME}" "${TMP_FILENAME}"
+      # Set FFMPEG Parameters
+      local FFMPEG_PARAMS=()
+      FFMPEG_PARAMS+=(-i "${TMP_FILENAME}")
+      FFMPEG_PARAMS+=(-map "0:v:0")
+      FFMPEG_PARAMS+=(-vf "${VIDEO_FILTER}")
+      FFMPEG_PARAMS+=(-vsync 1)
+      FFMPEG_PARAMS+=(-vcodec "libx264")
+      FFMPEG_PARAMS+=(-r "${INPUT_FPS}")
+      FFMPEG_PARAMS+=(-crf "${CRF}")
+      FFMPEG_PARAMS+=(-preset "${PRESET}")
+      FFMPEG_PARAMS+=(-profile:v "high10")
+      FFMPEG_PARAMS+=(-level:v 6.1)
+      FFMPEG_PARAMS+=(-g 60)
+      FFMPEG_PARAMS+=(-sc_threshold 0)
+      FFMPEG_PARAMS+=(-map "0:a:0")
+      FFMPEG_PARAMS+=(-c:a copy)
+      FFMPEG_PARAMS+=(-movflags +faststart)
+      FFMPEG_PARAMS+=(-f "mp4")
+      FFMPEG_PARAMS+=(-y)
+      FFMPEG_PARAMS+=("${TMP_DIR}/optimized.mp4")
+      if ffmpeg ${FFMPEG_PARAMS[@]}; then
+        mv "${INPUT_FILE_NAME}" "${INPUT_FILE_NAME}.orig"
+        cp "${TMP_DIR}/optimized.mp4" "${INPUT_FILE_NAME}"
+        if [ "$(getDiscardOriginal)" == "true" ]; then
+          rm "${INPUT_FILE_NAME}.orig"
+        fi
+        rm -rf "${TMP_DIR}"
+      fi
+    fi
+  fi
+}
 concat () {
+  local i="0"
+  while [ "${i}" -lt "9000" ]; do
+    if [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.mp4" ]; then
+      concat_optimize "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.mp4"
+    fi
+    if [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.m4v" ]; then
+      concat_optimize "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.m4v"
+    fi
+    if [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.mkv" ]; then
+      concat_optimize "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.mkv"
+    fi
+    if [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.webm" ]; then
+      concat_optimize "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.webm"
+    fi
+    i=$(( $i + 1 ))
+  done
   initTmpDirs
   local i="0"
   local count="10"
@@ -511,6 +643,17 @@ concat () {
     local INPUT_HEIGHT=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=height "${origPart}") 2>&1)
     local INPUT_PIX_FMT=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=pix_fmt "${origPart}") 2>&1)
     local INPUT_COLOR_PRIMITIVES=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=color_primaries "${origPart}") 2>&1)
+    local CRF=""
+
+    # Calculate CRF
+    if [ "${PRESET_GROUP}" == "1" ]; then
+      CRF="20"
+    elif [ "${PRESET_GROUP}" == "2" ]; then
+      CRF="10"
+    else
+      CRF="6"
+    fi
+
     local ffmpegParams=()
     ffmpegParams+=(-i "${origPart}")
     if [ "$(getProduceSample)" == "true" ]; then
@@ -520,58 +663,13 @@ concat () {
     ffmpegParams+=(-map "0:v:0")
     ffmpegParams+=(-map "-0:t") # remove attachments
     local videoFilter=""
-    if [ "$(getDenoise)" == "true" ]; then
-      if [ "${INPUT_PIX_FMT}" != "yuv420p" ]; then
-        videoFilter="${videoFilter}format=yuv420p,"
-      fi
-      videoFilter="${videoFilter}nlmeans='1.0:7:5:3:3',format=yuv420p10le"
-    else
-      echo -e "${ALERT_FONT}### Skipping denoise step. Did you remember to denoise your source with NLMeans?${RESET_FONT}"
-      if [ "${INPUT_PIX_FMT}" != "yuv420p10le" ]; then
-        videoFilter="${videoFilter}format=yuv420p10le,"
-      fi
-    fi
-    if [ "${INPUT_COLOR_PRIMITIVES}" == "unknown" ]; then
-      if [ "${INPUT_HEIGHT}" -gt "720" ]; then
-        videoFilter="${videoFilter}colorspace=bt709:iall=bt2020:fast=1,"
-      elif [ "${INPUT_HEIGHT}" -gt "480" ]; then
-        videoFilter="${videoFilter}colorspace=bt709:iall=bt709:fast=1,"
-      elif [ "${INPUT_FPS}" == "25/1" ] || [ "${INPUT_FPS}" == "50/1" ]; then
-        videoFilter="${videoFilter}colorspace=bt709:iall=bt601-6-625:fast=1,"
-      else
-        videoFilter="${videoFilter}colorspace=bt709:iall=bt601-6-525:fast=1,"
-      fi
-    elif [ "${INPUT_COLOR_PRIMITIVES}" != "bt709" ]; then
-      videoFilter="${videoFilter}colorspace=bt709:iall=${INPUT_COLOR_PRIMITIVES}:fast=1,"
-    fi
-    if [ "${INPUT_WIDTH}" -lt "1281" ] && [ "${INPUT_HEIGHT}" -lt "721" ]; then
-      videoFilter="${videoFilter}scale=w=iw*2:h=ih*2:flags=spline,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
-    elif [ "${INPUT_WIDTH}" -lt "1281" ]; then
-      videoFilter="${videoFilter}scale=w=iw*2:h=ih:flags=spline,transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
-    elif [ "${INPUT_HEIGHT}" -lt "721" ]; then
-      videoFilter="${videoFilter}scale=w=iw:h=ih*2:flags=spline,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',"
-    fi
-    if [ "${INPUT_WIDTH}" -lt "641" ] && [ "${INPUT_HEIGHT}" -lt "361" ]; then
-      videoFilter="${videoFilter}scale=w=iw*2:h=ih*2:flags=spline,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
-    elif [ "${INPUT_WIDTH}" -lt "641" ]; then
-      videoFilter="${videoFilter}scale=w=iw*2:h=ih:flags=spline,transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
-    elif [ "${INPUT_HEIGHT}" -lt "361" ]; then
-      videoFilter="${videoFilter}scale=w=iw:h=ih*2:flags=spline,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',"
-    fi
     videoFilter="${videoFilter}scale=(iw*sar)*min(${MAX_INPUT_WIDTH}/(iw*sar)\,${MAX_INPUT_HEIGHT}/ih):ih*min(${MAX_INPUT_WIDTH}/(iw*sar)\,${MAX_INPUT_HEIGHT}/ih):flags=print_info+spline+full_chroma_inp+full_chroma_int,"
-    if [ "$(getForce8bit)" == "true" ]; then
-      videoFilter="${videoFilter}format=yuv420p,"
-    fi
     videoFilter="${videoFilter}pad=${MAX_INPUT_WIDTH}:${MAX_INPUT_HEIGHT}:(${MAX_INPUT_WIDTH}-iw*min(${MAX_INPUT_WIDTH}/iw\,${MAX_INPUT_HEIGHT}/ih))/2:(${MAX_INPUT_WIDTH}-ih*min(${MAX_INPUT_WIDTH}/iw\,${MAX_INPUT_HEIGHT}/ih))/2"
     ffmpegParams+=(-vf "${videoFilter}")
     ffmpegParams+=(-vsync 1)
     ffmpegParams+=(-vcodec "libx264")
     ffmpegParams+=(-r "${INPUT_FPS}")
-    if [ "$(getPresetGroup)" == "1" ]; then
-      ffmpegParams+=(-crf "20")
-    else
-      ffmpegParams+=(-crf "6")
-    fi
+    ffmpegParams+=(-crf "${CRF}")
     ffmpegParams+=(-preset "$(getPreset)")
     ffmpegParams+=(-profile:v "high10")
     ffmpegParams+=(-level:v 6.1)
@@ -728,21 +826,29 @@ getInputAudioChannels () {
 }
 # get the input file's width
 getInputWidth () {
-        local width=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=width "$filename") 2>&1)
+        local width=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=width "${1}") 2>&1)
         echo $width
 }
 # get the input file's height
 getInputHeight () {
-        local height=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=height "$filename") 2>&1)
+        local height=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=height "${1}") 2>&1)
         echo $height
 }
 getInputPixFmt () {
-        local pixFmt=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=pix_fmt "$filename") 2>&1)
+        local pixFmt=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=pix_fmt "${1}") 2>&1)
         echo $pixFmt
 }
 getInputColorPrimitives() {
-        local colorPrimitives=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=color_primaries "$filename") 2>&1)
+        local colorPrimitives=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=color_primaries "${1}") 2>&1)
         echo $colorPrimitives
+}
+getInputBitrate() {
+  local bitrate=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=bit_rate "${1}") 2>&1)
+  if [ "${bitrate}" == "N/A" ]; then
+    echo "-1"
+  else
+    echo $bitrate
+  fi
 }
 # get the input file's DAR
 getInputDar () {
@@ -755,14 +861,14 @@ getInputDar () {
         echo $dar
 }
 getCropValue() {
-  local CROP_VALUE=$(ffmpeg -t 1000 -i "${filename}" -vf "select=not(mod(n\,1000)),cropdetect=36:1:0" -f null - 2>&1 | awk '/crop/ { print $NF }' | tail -1)
+  local CROP_VALUE=$(ffmpeg -t 1000 -i "${1}" -vf "select=not(mod(n\,1000)),cropdetect=36:1:0" -f null - 2>&1 | awk '/crop/ { print $NF }' | tail -1)
   echo $CROP_VALUE
 }
 # get the input file's FPS
 getInputFps () {
-        local fps=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=r_frame_rate "$filename") 2>&1)
+        local fps=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=r_frame_rate "${1}") 2>&1)
         fps=$(echo "10*$fps" | bc)
-        local avg_fps=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=avg_frame_rate "$filename") 2>&1)
+        local avg_fps=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=avg_frame_rate "${1}") 2>&1)
         avg_fps=$(echo "10*$avg_fps" | bc)
         if [ "$fps" == "240" ]; then
           echo "24/1"
@@ -805,7 +911,7 @@ getInputFps () {
 # returns true when the input video is progressive, otherwise returns false
 # untested
 isInputProgressive() {
-  local IDET=$(ffmpeg -i "${filename}" -vf "idet" -f null - 2>&1 | tail -1)
+  local IDET=$(ffmpeg -i "${1}" -vf "idet" -f null - 2>&1 | tail -1)
   local TFF="${IDET##*TFF:}"
   TFF="${TFF%BFF:*}"
   TFF=$(echo "$TFF" | bc)
