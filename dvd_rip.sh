@@ -199,6 +199,7 @@ main () {
 getVideoFilter() {
   local FORCE_720P=${1}
   local FILE_NAME=${2}
+  local INPUT_DAR="$(getInputDar "$FILE_NAME")"
   local INPUT_WIDTH="$(getInputWidth "$FILE_NAME")"
   local INPUT_HEIGHT="$(getInputHeight "$FILE_NAME")"
   local CROP_VALUE="$(getCropValue "$FILE_NAME")"
@@ -278,37 +279,55 @@ getVideoFilter() {
   fi
   # Double resolution when necessary
   # Only use nural network AI super-resolution when preset is not: ultrafast, superfast, veryfast, faster
-  local OUTPUT_WIDTH="${CROP_WIDTH}"
-  local OUTPUT_HEIGHT="${CROP_HEIGHT}"
-  if [ "${CROP_WIDTH}" -lt "960" ] && [ "${CROP_HEIGHT}" -lt "548" ]; then
-    OUTPUT_WIDTH=$(echo "2*$CROP_WIDTH" | bc)
-    OUTPUT_HEIGHT=$(echo "2*$CROP_HEIGHT" | bc)
-    VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih*2:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int,"
-    if [ "${PRESET_GROUP}" != "1" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
+  local SCALE_WIDTH="false"
+  local SCALE_HEIGHT="false"
+  if [ "${INPUT_DAR}" -gt "1777" ]; then
+    if [ "${CROP_WIDTH}" -lt "1180" ]; then
+      SCALE_WIDTH="true"
     fi
-  elif [ "${CROP_WIDTH}" -lt "960" ]; then
-    OUTPUT_WIDTH=$(echo "2*$CROP_WIDTH" | bc)
-    VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int,"
-    if [ "${PRESET_GROUP}" != "1" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
+    if [ "${CROP_HEIGHT}" -lt "500" ]; then
+      SCALE_HEIGHT="true"
     fi
-  elif [ "${CROP_HEIGHT}" -lt "548" ]; then
-    OUTPUT_HEIGHT=$(echo "2*$CROP_HEIGHT" | bc)
-    VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw:h=ih*2:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int,"
-    if [ "${PRESET_GROUP}" != "1" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',"
+  else
+    if [ "${CROP_WIDTH}" -lt "900" ]; then
+      SCALE_WIDTH="true"
+    fi
+    if [ "${CROP_HEIGHT}" -lt "620" ]; then
+      SCALE_HEIGHT="true"
     fi
   fi
-  # Scale Video to 720p resolution. Meaning 1280×720px with no black bars.
+  if [ "${PRESET_GROUP}" != "1" ]; then
+    if [ "${SCALE_WIDTH}" == "true" ] && [ "${SCALE_HEIGHT}" == "true" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih*2:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
+    elif [ "${SCALE_WIDTH}" == "true" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int,transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
+    elif [ "${SCALE_HEIGHT}" == "true" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw:h=ih*2:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',"
+    fi
+  fi
+  # Scale Video to 720p resolution.
   if [ "${FORCE_720P}" == "true" ]; then
-    if [ "${OUTPUT_WIDTH}" -lt "960" ] || [ "${OUTPUT_WIDTH}" -gt "1280" ]; then
-      OUTPUT_WIDTH="1280"
-    fi
-    if [ "${OUTPUT_HEIGHT}" -lt "548" ] || [ "${OUTPUT_HEIGHT}" -gt "720" ]; then
-      OUTPUT_HEIGHT="720"
-    fi
-    if [ "${OUTPUT_WIDTH}" != "${CROP_WIDTH}" ] || [ "${OUTPUT_HEIGHT}" != "${CROP_HEIGHT}" ]; then
+    if [ "${SCALE_WIDTH}" == "true" ] || [ "${SCALE_HEIGHT}" == "true" ] || [ "${CROP_WIDTH}" -gt "1280" ] || [ "${CROP_HEIGHT}" -gt "720" ]; then
+      local OUTPUT_WIDTH="0"
+      local OUTPUT_HEIGHT="0"
+      if [ "${CROP_WIDTH}" -gt "1280" ]; then
+        OUTPUT_WIDTH="1280"
+      elif [ "${SCALE_WIDTH}" == "true" ] && [ "${CROP_WIDTH}" -gt "640" ]; then
+        OUTPUT_WIDTH="1280"
+      elif [ "${SCALE_WIDTH}" == "true" ] && [ "${CROP_WIDTH}" -lt "590" ]; then
+        OUTPUT_WIDTH="1180"
+      else
+        OUTPUT_WIDTH="${CROP_WIDTH}"
+      fi
+      if [ "${CROP_HEIGHT}" -gt "720" ]; then
+        OUTPUT_HEIGHT="720"
+      elif [ "${SCALE_HEIGHT}" == "true" ] && [ "${CROP_HEIGHT}" -gt "360" ]; then
+        OUTPUT_HEIGHT="720"
+      elif [ "${SCALE_HEIGHT}" == "true" ] && [ "${CROP_HEIGHT}" -gt "310" ]; then
+        OUTPUT_HEIGHT="620"
+      else
+        OUTPUT_HEIGHT="${CROP_HEIGHT}"
+      fi
       VIDEO_FILTER="${VIDEO_FILTER}scale=w=${OUTPUT_WIDTH}:h=${OUTPUT_HEIGHT}:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int,"
     fi
   fi
@@ -325,9 +344,20 @@ optimize () {
   local TITLE="$(getTitle)"
   local INPUT_BITRATE="$(getInputBitrate "$filename")"
   local VIDEO_BITRATE="$(getVideoBitrate)"
+  local INPUT_DAR="$(getInputDar "$filename")"
   local INPUT_WIDTH="$(getInputWidth "$filename")"
   local INPUT_HEIGHT="$(getInputHeight "$filename")"
-  if [ "${INPUT_BITRATE}" -gt "500000" ] && [ "${INPUT_BITRATE}" -lt "${VIDEO_BITRATE}001" ] && [ "${INPUT_WIDTH}" -gt "959" ] && [ "${INPUT_WIDTH}" -lt "1281" ] && [ "${INPUT_HEIGHT}" -gt "547" ] && [ "${INPUT_HEIGHT}" -lt "721" ]; then
+  local IS_OPTIMIZED="true"
+  if [ "${INPUT_BITRATE}" -lt "500000" ] || [ "${INPUT_BITRATE}" -gt "${VIDEO_BITRATE}000" ]; then
+    IS_OPTIMIZED="false"
+  elif [ "${INPUT_WIDTH}" -gt "1280" ] || [ "${INPUT_HEIGHT}" -gt "720" ]; then
+    IS_OPTIMIZED="false"
+  elif [ "${INPUT_DAR}" -gt "1777" ] && [ "${INPUT_WIDTH}" -lt "1180" ]; then
+    IS_OPTIMIZED="false"
+  elif [ "${INPUT_DAR}" -lt "1778" ] && [ "${INPUT_HEIGHT}" -lt "620" ]; then
+    IS_OPTIMIZED="false"
+  fi
+  if [ "${IS_OPTIMIZED}" == "true" ]; then
     echo -e "${SUCCESS_FONT}### ${TITLE}.mp4 has already been optimized.${RESET_FONT}"
     downsample "${INPUT_DIR}/${TITLE}/${TITLE}.mp4"
   else
@@ -394,6 +424,7 @@ optimize () {
       FFMPEG_PARAMS+=(-f "mp4")
       FFMPEG_PARAMS+=(-y)
       FFMPEG_PARAMS+=("${TMP_DIR}/optimized.mp4")
+#      echo "FFMPEG_PARAMS: ${FFMPEG_PARAMS}"
       if ffmpeg ${FFMPEG_PARAMS[@]}; then
         mkdir -p "$(getInputDir)$(getTitle)/orig"
         mv "$filename" "${INPUT_DIR}/${TITLE}/orig/${TITLE}.mp4"
@@ -612,17 +643,17 @@ concat () {
   #   this lets know that the video with the largest vertical resolution will maximize the vertical resolution 
   #   and the video with the largest horizontal resolution will maximize the horizontal resolution.
   local MAX_INPUT_AUDIO_CHANNELS="1"
+  local MAX_INPUT_WIDTH="0"
   local MAX_INPUT_HEIGHT="0"
   local MAX_INPUT_DAR="0"
   for origPart in "$(getTmpDir)"/*.m4v; do
     local INPUT_AUDIO_CHANNELS=$((ffprobe -v error -select_streams a:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=channels "${origPart}") 2>&1)
-    local INPUT_HEIGHT=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=height "${origPart}") 2>&1)
-    local INPUT_DAR=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=display_aspect_ratio "${origPart}") 2>&1)
-    # everything before the last : is considered the DAR's width
-    local INPUT_DAR_WIDTH="${INPUT_DAR%:*}"
-    # everything after the last :  is considered the DAR's height
-    local INPUT_DAR_HEIGHT=${INPUT_DAR##*:}
-    INPUT_DAR=$(echo "1000*${INPUT_DAR_WIDTH}/${INPUT_DAR_HEIGHT}" | bc)
+    local INPUT_WIDTH="$(getInputWidth "$origPart")"
+    local INPUT_HEIGHT="$(getInputHeight "$origPart")"
+    local INPUT_DAR="$(getInputDar "$origPart")"
+    if [ "${INPUT_WIDTH}" -gt "${MAX_INPUT_WIDTH}" ]; then
+      MAX_INPUT_WIDTH="${INPUT_WIDTH}"
+    fi
     if [ "${INPUT_HEIGHT}" -gt "${MAX_INPUT_HEIGHT}" ]; then
       MAX_INPUT_HEIGHT="${INPUT_HEIGHT}"
     fi
@@ -633,10 +664,24 @@ concat () {
       MAX_INPUT_AUDIO_CHANNELS="${INPUT_AUDIO_CHANNELS}"
     fi
   done
-  while [ "${MAX_INPUT_HEIGHT}" -lt "721" ]; do
-    MAX_INPUT_HEIGHT=$(echo "2*${MAX_INPUT_HEIGHT}" | bc)
-  done
-  local MAX_INPUT_WIDTH=$(echo "${MAX_INPUT_DAR}*${MAX_INPUT_HEIGHT}/1000" | bc)
+
+  # When the DAR s larger than 16:9 then the width fills the frame and the height should be proportional.
+  # Otherwise the height fills the frame and the width should be proportional.
+  local MAX_OUTPUT_WIDTH="0"
+  local MAX_OUTPUT_HEIGHT="0"
+  if [ "${MAX_INPUT_DAR}" -gt "1777" ]; then
+    MAX_OUTPUT_WIDTH="1180"
+    if [ "${MAX_INPUT_WIDTH}" -gt "${MAX_OUTPUT_WIDTH}" ]; then
+      MAX_OUTPUT_WIDTH="${MAX_INPUT_WIDTH}"
+    fi
+    MAX_OUTPUT_HEIGHT=$(echo "${MAX_OUTPUT_WIDTH}/${MAX_INPUT_DAR}*1000" | bc)
+  else
+    MAX_OUTPUT_HEIGHT="620"
+    if [ "${MAX_INPUT_HEIGHT}" -gt "${MAX_OUTPUT_HEIGHT}" ]; then
+      MAX_OUTPUT_HEIGHT="${MAX_INPUT_HEIGHT}"
+    fi
+    MAX_OUTPUT_WIDTH=$(echo "${MAX_INPUT_DAR}*${MAX_OUTPUT_HEIGHT}/1000" | bc)
+  fi
   # for each video, lets do some processing and then scale it to fit in the MAX_INPUT_WIDTH by MAX_INPUT_HEIGHT box.
   for origPart in "$(getTmpDir)"/*.m4v; do
     local INPUT_WIDTH=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=width "${origPart}") 2>&1)
@@ -663,8 +708,9 @@ concat () {
     ffmpegParams+=(-map "0:v:0")
     ffmpegParams+=(-map "-0:t") # remove attachments
     local videoFilter=""
-    videoFilter="${videoFilter}scale=(iw*sar)*min(${MAX_INPUT_WIDTH}/(iw*sar)\,${MAX_INPUT_HEIGHT}/ih):ih*min(${MAX_INPUT_WIDTH}/(iw*sar)\,${MAX_INPUT_HEIGHT}/ih):flags=print_info+spline+full_chroma_inp+full_chroma_int,"
-    videoFilter="${videoFilter}pad=${MAX_INPUT_WIDTH}:${MAX_INPUT_HEIGHT}:(${MAX_INPUT_WIDTH}-iw*min(${MAX_INPUT_WIDTH}/iw\,${MAX_INPUT_HEIGHT}/ih))/2:(${MAX_INPUT_WIDTH}-ih*min(${MAX_INPUT_WIDTH}/iw\,${MAX_INPUT_HEIGHT}/ih))/2"
+    videoFilter="${videoFilter}scale=(iw*sar)*min(${MAX_OUTPUT_WIDTH}/(iw*sar)\,${MAX_OUTPUT_HEIGHT}/ih):ih*min(${MAX_OUTPUT_WIDTH}/(iw*sar)\,${MAX_OUTPUT_HEIGHT}/ih):flags=print_info+spline+full_chroma_inp+full_chroma_int,"
+    videoFilter="${videoFilter}pad=${MAX_OUTPUT_WIDTH}:${MAX_OUTPUT_HEIGHT}:(${MAX_OUTPUT_WIDTH}-iw*min(${MAX_OUTPUT_WIDTH}/iw\,${MAX_OUTPUT_HEIGHT}/ih))/2:(${MAX_OUTPUT_WIDTH}-ih*min(${MAX_OUTPUT_WIDTH}/iw\,${MAX_OUTPUT_HEIGHT}/ih))/2"
+    echo -e "${INFO_FONT}### Video Filter: $videoFilter${RESET_FONT}"
     ffmpegParams+=(-vf "${videoFilter}")
     ffmpegParams+=(-vsync 1)
     ffmpegParams+=(-vcodec "libx264")
@@ -852,13 +898,13 @@ getInputBitrate() {
 }
 # get the input file's DAR
 getInputDar () {
-        local dar=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=display_aspect_ratio "$filename") 2>&1)
-        # everything before the last : is considered the DAR's width
-        local darWidth="${dar%:*}"
-        # everything after the last :  is considered the DAR's height
-        local darHeight=${dar##*:}
-        dar="$darWidth/$darHeight"
-        echo $dar
+    local INPUT_DAR=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=display_aspect_ratio "${1}") 2>&1)
+    # everything before the last : is considered the DAR's width
+    local INPUT_DAR_WIDTH="${INPUT_DAR%:*}"
+    # everything after the last :  is considered the DAR's height
+    local INPUT_DAR_HEIGHT=${INPUT_DAR##*:}
+    INPUT_DAR=$(echo "1000*${INPUT_DAR_WIDTH}/${INPUT_DAR_HEIGHT}" | bc)
+    echo "${INPUT_DAR}"
 }
 getCropValue() {
   local CROP_VALUE=$(ffmpeg -t 1000 -i "${1}" -vf "select=not(mod(n\,1000)),cropdetect=36:1:0" -f null - 2>&1 | awk '/crop/ { print $NF }' | tail -1)
