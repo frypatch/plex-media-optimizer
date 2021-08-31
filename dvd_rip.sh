@@ -246,7 +246,8 @@ getVideoFilter() {
     VIDEO_FILTER="${VIDEO_FILTER}${CROP_VALUE},"
   fi
   if [ "${PRESET_GROUP}" != "1" ] && [ "${CROP_HEIGHT}" -lt "376" ] && [ "${CROP_HEIGHT}" -gt "360" ]; then
-      VIDEO_FILTER="${VIDEO_FILTER}crop=${CROP_WIDTH}:360"
+    CROP_HEIGHT="360"
+    VIDEO_FILTER="${VIDEO_FILTER}crop=${CROP_WIDTH}:360"
   fi
   # Denoise Video. Pixel format should end up in yuv420p10le.
   if [ "${DENOISE_VIDEO}" == "false" ]; then
@@ -312,19 +313,27 @@ getVideoFilter() {
       local OUTPUT_HEIGHT="0"
       if [ "${CROP_WIDTH}" -gt "1280" ]; then
         OUTPUT_WIDTH="1280"
-      elif [ "${SCALE_WIDTH}" == "true" ] && [ "${CROP_WIDTH}" -gt "640" ]; then
-        OUTPUT_WIDTH="1280"
-      elif [ "${SCALE_WIDTH}" == "true" ] && [ "${CROP_WIDTH}" -lt "590" ]; then
-        OUTPUT_WIDTH="1180"
+      elif [ "${SCALE_WIDTH}" == "true" ]; then
+        if [ "${CROP_WIDTH}" -gt "640" ]; then
+          OUTPUT_WIDTH="1280"
+        elif [ "${CROP_WIDTH}" -lt "590" ]; then
+          OUTPUT_WIDTH="1180"
+        else
+          OUTPUT_WIDTH=$(echo "2*${CROP_WIDTH}" | bc)
+        fi
       else
         OUTPUT_WIDTH="${CROP_WIDTH}"
       fi
       if [ "${CROP_HEIGHT}" -gt "720" ]; then
         OUTPUT_HEIGHT="720"
-      elif [ "${SCALE_HEIGHT}" == "true" ] && [ "${CROP_HEIGHT}" -gt "360" ]; then
-        OUTPUT_HEIGHT="720"
-      elif [ "${SCALE_HEIGHT}" == "true" ] && [ "${CROP_HEIGHT}" -gt "310" ]; then
-        OUTPUT_HEIGHT="620"
+      elif [ "${SCALE_HEIGHT}" == "true" ]; then
+        if [ "${CROP_HEIGHT}" -gt "360" ]; then
+          OUTPUT_HEIGHT="720"
+        elif [ "${CROP_HEIGHT}" -lt "310" ]; then
+          OUTPUT_HEIGHT="620"
+        else
+          OUTPUT_HEIGHT=$(echo "2*${CROP_HEIGHT}" | bc)
+        fi
       else
         OUTPUT_HEIGHT="${CROP_HEIGHT}"
       fi
