@@ -247,7 +247,7 @@ getVideoFilter() {
   fi
   if [ "${PRESET_GROUP}" != "1" ] && [ "${CROP_HEIGHT}" -lt "376" ] && [ "${CROP_HEIGHT}" -gt "360" ]; then
     CROP_HEIGHT="360"
-    VIDEO_FILTER="${VIDEO_FILTER}crop=${CROP_WIDTH}:360"
+    VIDEO_FILTER="${VIDEO_FILTER}crop=${CROP_WIDTH}:360,"
   fi
   # Denoise Video. Pixel format should end up in yuv420p10le.
   if [ "${DENOISE_VIDEO}" == "false" ]; then
@@ -507,8 +507,15 @@ concat_optimize() {
     local PRESET="$(getPreset)"
     local PRESET_GROUP="$(getPresetGroup)"
     local INPUT_FPS="$(getInputFps "${INPUT_FILE_NAME}")"
-    local VIDEO_FILTER="$(getVideoFilter "false" "${INPUT_FILE_NAME}")"
+    local VIDEO_FILTER=""
     local CRF=""
+
+    # Calculate Video Filter
+    if [ "${PRESET_GROUP}" == "1" ]; then
+      VIDEO_FILTER="$(getVideoFilter "true" "${INPUT_FILE_NAME}")"
+    else
+      VIDEO_FILTER="$(getVideoFilter "false" "${INPUT_FILE_NAME}")"
+    fi
 
     # Calculate CRF
     if [ "${PRESET_GROUP}" == "1" ]; then
@@ -678,19 +685,10 @@ concat () {
   # Otherwise the height fills the frame and the width should be proportional.
   local MAX_OUTPUT_WIDTH="0"
   local MAX_OUTPUT_HEIGHT="0"
-  if [ "${MAX_INPUT_DAR}" -gt "1777" ]; then
-    MAX_OUTPUT_WIDTH="1180"
-    if [ "${MAX_INPUT_WIDTH}" -gt "${MAX_OUTPUT_WIDTH}" ]; then
-      MAX_OUTPUT_WIDTH="${MAX_INPUT_WIDTH}"
-    fi
-    MAX_OUTPUT_HEIGHT=$(echo "${MAX_OUTPUT_WIDTH}/${MAX_INPUT_DAR}*1000" | bc)
-  else
-    MAX_OUTPUT_HEIGHT="620"
-    if [ "${MAX_INPUT_HEIGHT}" -gt "${MAX_OUTPUT_HEIGHT}" ]; then
-      MAX_OUTPUT_HEIGHT="${MAX_INPUT_HEIGHT}"
-    fi
-    MAX_OUTPUT_WIDTH=$(echo "${MAX_INPUT_DAR}*${MAX_OUTPUT_HEIGHT}/1000" | bc)
+  if [ "${MAX_INPUT_HEIGHT}" -gt "${MAX_OUTPUT_HEIGHT}" ]; then
+    MAX_OUTPUT_HEIGHT="${MAX_INPUT_HEIGHT}"
   fi
+  MAX_OUTPUT_WIDTH=$(echo "${MAX_INPUT_DAR}*${MAX_OUTPUT_HEIGHT}/1000" | bc)
   # for each video, lets do some processing and then scale it to fit in the MAX_INPUT_WIDTH by MAX_INPUT_HEIGHT box.
   for origPart in "$(getTmpDir)"/*.m4v; do
     local INPUT_WIDTH=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=width "${origPart}") 2>&1)
@@ -744,9 +742,38 @@ concat () {
       echo "failed conversion"
     fi
   done
-  # with a bash for loop
-  for f in "$(getTmpDir)"/*.mp4; do echo "file '$f'" >> "$(getTmpDir)/mylist.txt"; done
-  ffmpeg -f concat -safe 0 -i "$(getTmpDir)/mylist.txt" -c copy "$(getInputDir)$(getTitle)/$(getTitle).mp4"
+  local MOVIE_LIST_FILE="$(getTmpDir)/mylist.txt"
+  local METADATA_FILE="$(getTmpDir)/metadata.txt"
+  echo ";FFMETADATA1" > "$METADATA_FILE"
+  echo "" >> "$METADATA_FILE"
+  # initialize chapter count
+  local CHAPTER="1"
+  # initialize the chapter start time in milliseconds
+  local START="0"
+  # initialize the chapter end time in milliseconds
+  local END="0"
+  for f in "$(getTmpDir)"/*.mp4; do
+    # get the duration in milliseconds from the video
+    local DURATION="$(getDuration "$f")"
+    local CHAPTER_TITLE="CHAPTER ${CHAPTER}"
+    local METADATA_TITLE="$(getMetadataTitle "$f")"
+    if [ "${METADATA_TITLE}" != "" ]; then
+      CHAPTER_TITLE="${CHAPTER_TITLE}: ${METADATA_TITLE}"
+    fi
+    END=$(( $START + $DURATION ))
+    # write chapter's metadata to the video's temp metadata file
+    echo "[CHAPTER]" >> "${METADATA_FILE}"
+    echo "TIMEBASE=1/1000" >> "${METADATA_FILE}"
+    echo "START=${START}" >> "${METADATA_FILE}"
+    echo "END=${END}" >> "${METADATA_FILE}"
+    echo "title=${CHAPTER_TITLE}" >> "${METADATA_FILE}"
+    echo "" >> "${METADATA_FILE}"
+    # set next chapter's start time to this chapter's end time
+    START=$END
+    CHAPTER=$(( $CHAPTER + 1 ))
+    echo "file '$f'" >> "${MOVIE_LIST_FILE}"
+  done
+  ffmpeg -f concat -safe 0 -i "${MOVIE_LIST_FILE}" -i "${METADATA_FILE}" -map_metadata 1 -c copy "$(getInputDir)$(getTitle)/$(getTitle).mp4"
   # cleanup
   rm -rf "$(getTmpDir)"
   if [ "$(getDiscardOriginal)" == "true" ]; then
@@ -918,6 +945,15 @@ getInputDar () {
 getCropValue() {
   local CROP_VALUE=$(ffmpeg -t 1000 -i "${1}" -vf "select=not(mod(n\,1000)),cropdetect=36:1:0" -f null - 2>&1 | awk '/crop/ { print $NF }' | tail -1)
   echo $CROP_VALUE
+}
+getDuration() {
+  # get the duration in milliseconds from the video
+  local DURATION=`ffmpeg -i "${1}" 2>&1 | awk '$1 ~ /^Duration/' | cut -d ' ' -f 4 | sed s/,// | awk '{ split($1, A, ":"); print 3600000*A[1] + 60000*A[2] + 1000*A[3] }'`   
+  echo $DURATION
+}
+getMetadataTitle() {
+  local TITLE=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries format_tags=title "${1}") 2>&1)
+  echo $TITLE
 }
 # get the input file's FPS
 getInputFps () {
