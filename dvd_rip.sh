@@ -188,8 +188,18 @@ main () {
         mv "$filename" "$(getInputDir)/$(getTitle)/$(getTitle).mp4"
         filename="$(getInputDir)/$(getTitle)/$(getTitle).mp4"
         optimize
-      elif [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt1.mp4" ] || [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt1.m4v" ] || [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt1.mkv" ] || [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt1.webm" ]; then
-        concat
+      else
+        local IS_CONCAT="false"
+        for EXTENSION in {mp4,m4v,mkv,webm}; do
+          for FILENAME in "$(getInputDir)$(getTitle)"/*.$EXTENSION; do
+            if [ "${FILENAME##* - pt}" == "1.${EXTENSION}" ]; then
+              IS_CONCAT="true"
+            fi
+          done
+        done
+        if [ "${IS_CONCAT}" == "true" ]; then
+          concat
+        fi
       fi
     else 
       echo "skipping $title due to filter."
@@ -567,55 +577,63 @@ concat_optimize() {
 concat () {
   local i="0"
   while [ "${i}" -lt "9000" ]; do
-    if [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.mp4" ]; then
-      concat_optimize "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.mp4"
-    fi
-    if [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.m4v" ]; then
-      concat_optimize "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.m4v"
-    fi
-    if [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.mkv" ]; then
-      concat_optimize "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.mkv"
-    fi
-    if [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.webm" ]; then
-      concat_optimize "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.webm"
-    fi
+    for EXTENSION in {mp4,m4v,mkv,webm}; do
+      for FILENAME in "$(getInputDir)$(getTitle)"/*.$EXTENSION; do
+        if [ "${FILENAME##* - pt}" == "${i}.${EXTENSION}" ]; then
+          concat_optimize "${FILENAME}"
+        fi
+      done
+    done
     i=$(( $i + 1 ))
   done
   initTmpDirs
+  local METADATA_FILE="$(getTmpDir)/metadata.txt"
+  echo ";FFMETADATA1" > "$METADATA_FILE"
+  echo "" >> "$METADATA_FILE"
+  # initialize chapter count
+  local CHAPTER="1"
+  # initialize the chapter start time in milliseconds
+  local START="0"
+  # initialize the chapter end time in milliseconds
+  local END="0"
   local i="0"
-  local count="10"
+  local count="1000"
   mkdir -p "$(getInputDir)$(getTitle)/orig"
-  while [ "${i}" -lt "90" ]; do
-    if [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.mp4" ]; then
-      echo "copying $(getTitle) - pt${i}.mp4 to $(getTmpDir)/pt${count}.m4v"
-      cp "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.mp4" "$(getTmpDir)/pt${count}.m4v"
-      mv "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.mp4" "$(getInputDir)$(getTitle)/orig/$(getTitle) - pt${i}.mp4"
-      count=$(( $count + 1 ))
-    fi
-    if [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.m4v" ]; then
-      echo "copying $(getTitle) - pt${i}.m4v to $(getTmpDir)/pt${count}.m4v"
-      cp "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.m4v" "$(getTmpDir)/pt${count}.m4v"
-      mv "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.m4v" "$(getInputDir)$(getTitle)/orig/$(getTitle) - pt${i}.m4v"
-      count=$(( $count + 1 ))
-    fi
-    if [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.mkv" ]; then
-      echo "copying $(getTitle) - pt${i}.mkv to $(getTmpDir)/pt${count}.m4v"
-      cp "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.mkv" "$(getTmpDir)/pt${count}.m4v"
-      mv "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.mkv" "$(getInputDir)$(getTitle)/orig/$(getTitle) - pt${i}.mkv"
-      count=$(( $count + 1 ))
-    fi
-    if [ -f "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.webm" ]; then
-      echo "copying $(getTitle) - pt${i}.webm to $(getTmpDir)/pt${count}.m4v"
-      cp "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.webm" "$(getTmpDir)/pt${count}.m4v"
-      mv "$(getInputDir)$(getTitle)/$(getTitle) - pt${i}.webm" "$(getInputDir)$(getTitle)/orig/$(getTitle) - pt${i}.webm"
-      count=$(( $count + 1 ))
-    fi
+  while [ "${i}" -lt "9000" ]; do
+    for EXTENSION in {mp4,m4v,mkv,webm}; do
+      for FILENAME in "$(getInputDir)$(getTitle)"/*.$EXTENSION; do
+        if [ "${FILENAME##* - pt}" == "${i}.${EXTENSION}" ]; then
+          # get the duration in milliseconds from the video
+          local DURATION="$(getDuration "$FILENAME")"
+          # everything before the last / is considered the chapter title
+          local CHAPTER_TITLE=${FILENAME##*/}
+          # everything before the last ` - pt` is considered the chapter name
+          CHAPTER_TITLE="${CHAPTER_TITLE% - pt*}"
+          local CHAPTER_TITLE="CHAPTER ${CHAPTER}: ${CHAPTER_TITLE}"
+          END=$(( $START + $DURATION ))
+          # write chapter's metadata to the video's temp metadata file
+          echo "[CHAPTER]" >> "${METADATA_FILE}"
+          echo "TIMEBASE=1/1000" >> "${METADATA_FILE}"
+          echo "START=${START}" >> "${METADATA_FILE}"
+          echo "END=${END}" >> "${METADATA_FILE}"
+          echo "title=${CHAPTER_TITLE}" >> "${METADATA_FILE}"
+          echo "" >> "${METADATA_FILE}"
+          # set next chapter's start time to this chapter's end time
+          START=$END
+          CHAPTER=$(( $CHAPTER + 1 ))
+          echo "copying ${FILENAME} to $(getTmpDir)/pt${count}.m4v"
+          cp "${FILENAME}" "$(getTmpDir)/pt${count}.m4v"
+          mv "${FILENAME}" "$(getInputDir)$(getTitle)/orig/$(getTitle) - pt${count}.mp4"
+          count=$(( $count + 1 ))
+        fi
+      done
+    done
     i=$(( $i + 1 ))
   done
   echo -e "${ALERT_FONT}### Concat videos parts into $(getTitle).mp4${RESET_FONT}"
-  local fps=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=r_frame_rate "$(getTmpDir)/pt10.m4v") 2>&1)
+  local fps=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=r_frame_rate "$(getTmpDir)/pt1000.m4v") 2>&1)
   fps=$(echo "10*$fps" | bc)
-  local avg_fps=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=avg_frame_rate "$(getTmpDir)/pt10.m4v") 2>&1)
+  local avg_fps=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=avg_frame_rate "$(getTmpDir)/pt1000.m4v") 2>&1)
   avg_fps=$(echo "10*$avg_fps" | bc)
   local INPUT_FPS="unknown"
   if [ "$fps" == "240" ]; then
@@ -743,34 +761,7 @@ concat () {
     fi
   done
   local MOVIE_LIST_FILE="$(getTmpDir)/mylist.txt"
-  local METADATA_FILE="$(getTmpDir)/metadata.txt"
-  echo ";FFMETADATA1" > "$METADATA_FILE"
-  echo "" >> "$METADATA_FILE"
-  # initialize chapter count
-  local CHAPTER="1"
-  # initialize the chapter start time in milliseconds
-  local START="0"
-  # initialize the chapter end time in milliseconds
-  local END="0"
   for f in "$(getTmpDir)"/*.mp4; do
-    # get the duration in milliseconds from the video
-    local DURATION="$(getDuration "$f")"
-    local CHAPTER_TITLE="CHAPTER ${CHAPTER}"
-    local METADATA_TITLE="$(getMetadataTitle "$f")"
-    if [ "${METADATA_TITLE}" != "" ]; then
-      CHAPTER_TITLE="${CHAPTER_TITLE}: ${METADATA_TITLE}"
-    fi
-    END=$(( $START + $DURATION ))
-    # write chapter's metadata to the video's temp metadata file
-    echo "[CHAPTER]" >> "${METADATA_FILE}"
-    echo "TIMEBASE=1/1000" >> "${METADATA_FILE}"
-    echo "START=${START}" >> "${METADATA_FILE}"
-    echo "END=${END}" >> "${METADATA_FILE}"
-    echo "title=${CHAPTER_TITLE}" >> "${METADATA_FILE}"
-    echo "" >> "${METADATA_FILE}"
-    # set next chapter's start time to this chapter's end time
-    START=$END
-    CHAPTER=$(( $CHAPTER + 1 ))
     echo "file '$f'" >> "${MOVIE_LIST_FILE}"
   done
   ffmpeg -f concat -safe 0 -i "${MOVIE_LIST_FILE}" -i "${METADATA_FILE}" -map_metadata 1 -c copy "$(getInputDir)$(getTitle)/$(getTitle).mp4"
