@@ -82,8 +82,10 @@ discardOriginal="false"
 produceSample="false"
 # denoise; when true video will be denoised with nlmeans and dejittered.
 denoise="true"
-# stabilize; when true the video will be angularly stabilized.
-stabilize="false"
+# decomb; when true video will be deinterlaced when it is interlaced
+decomb="true"
+# crop; when true video will be cropped
+crop="true"
 # when true then display the help message
 help="false"
 # the preset to use. Options: ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow, placebo
@@ -104,8 +106,10 @@ while [[ "$#" -ge 1 ]]; do
     force8bit="true"
   elif [ "$1" == "-skipDenoise" ]; then
     denoise="false"
-  elif [ "$1" == "-stabilize" ]; then
-    stabilize="true"
+  elif [ "$1" == "-skipDecomb" ]; then
+    decomb="false"
+  elif [ "$1" == "-skipCrop" ]; then
+    crop="false"
   elif [ "$1" == "-filter" ] || [ "$1" == "-f" ]; then
     shift
     filter="$1"
@@ -138,8 +142,9 @@ printHelp() {
   echo "-force264           same as -forceAvc"
   echo "-forceAvc           force the optimized files to use AVC encoding (default is HEVC)"
   echo "-force8bit          force the optimized files to use 8 bit encoding (default is 10 bit)"
-  echo "-stabilize          angularly stabilize the video (default is to not angularly stabilize the video, requires vidstab)"
   echo "-skipDenoise        do not denoise or dejitter the video (default is to lightly denoise with NLMeans and dejitter)"
+  echo "-skipDecomb         do not decomb the video (default is to decomb when source is interlaced)"
+  echo "-skipCrop           do not crop the video (default is to crop)"
   echo "-filter [regex]     only optimize videos when their names match the supplied regex"
   echo "-preset [selection] what preset value to use. options: ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow, placebo"
 }
@@ -150,9 +155,10 @@ main () {
   echo -e "${SUCCESS_FONT}cleanup     ${discardOriginal}${RESET_FONT}"
   echo -e "${SUCCESS_FONT}bitrate     ${videoBitrate}${RESET_FONT}"
   echo -e "${SUCCESS_FONT}denoise     ${denoise}${RESET_FONT}"
+  echo -e "${SUCCESS_FONT}decomb      ${decomb}${RESET_FONT}"
+  echo -e "${SUCCESS_FONT}crop        ${crop}${RESET_FONT}"
   echo -e "${SUCCESS_FONT}forceAvc    ${forceAvc}${RESET_FONT}"
   echo -e "${SUCCESS_FONT}force8bit   ${force8bit}${RESET_FONT}"
-  echo -e "${SUCCESS_FONT}stabilize   ${stabilize}${RESET_FONT}"
   if [ "$(isFdkAacInstalled)" == "true" ]; then
     echo -e "${SUCCESS_FONT}has fdk aac $(isFdkAacInstalled)${RESET_FONT}"
   else
@@ -213,7 +219,7 @@ getVideoFilter() {
   local INPUT_WIDTH="$(getInputWidth "$FILE_NAME")"
   local INPUT_HEIGHT="$(getInputHeight "$FILE_NAME")"
   local CROP_VALUE="$(getCropValue "$FILE_NAME")"
-  local IS_INPUT_PROGRESSIVE="$(isInputProgressive "$FILE_NAME")"
+  local DECOMB="$(getDecomb "$FILE_NAME")"
   local DENOISE_VIDEO="$(getDenoise)"
   local INPUT_PIX_FMT="$(getInputPixFmt "$FILE_NAME")"
   local PRESET_GROUP="$(getPresetGroup)"
@@ -243,35 +249,44 @@ getVideoFilter() {
   # everything before the first : is considered the crop height
   CROP_HEIGHT="${CROP_HEIGHT%%:*}"
 
-  # Construct Video Filter
-  if [ "${IS_INPUT_PROGRESSIVE}" == "false" ]; then
-    # VIDEO_FILTER="${VIDEO_FILTER}yadif,"
-    # http://macilatthefront.blogspot.com/2017/04/deinterlacing-hd-footage-without-losing.html
+  ###############################
+  # Construct Video Filter Here #
+  ###############################
+
+  # If decombing is enabled and the input video has more interlaced frames than progressive frames then lets deinterlace it first.
+  # Note: Handbrake's decomb option provides a better result. Use that when possible; this is just here as a fail-safe.
+  if [ "${DECOMB}" == "true" ]; then
+    # https://macilatthefront.blogspot.com/2021/05/which-deinterlacing-algorithm-is-best.html
     VIDEO_FILTER="${VIDEO_FILTER}bwdif,"
-    # http://wp.xin.at/archives/5287
-    # VIDEO_FILTER="${VIDEO_FILTER}nnedi=weights=nnedi3_weights.bin:field='tf':nsize='s48x6':nns='n256':pscrn='new',"
   fi
-  # Crop Video. No need to wast resolution here when PLEX lets us use anamorphic scaling in 720p.
+  # Crop Video. No need to waist resolution here when PLEX lets us use anamorphic scaling in 720p.
   if [ "${CROP_VALUE}" != "crop=${INPUT_WIDTH}:${INPUT_HEIGHT}:0:0" ]; then
     VIDEO_FILTER="${VIDEO_FILTER}${CROP_VALUE},"
   fi
-  if [ "${PRESET_GROUP}" != "1" ] && [ "${CROP_HEIGHT}" -lt "376" ] && [ "${CROP_HEIGHT}" -gt "360" ]; then
+  # If cropped video resolution is close to exactly half the height of 720p then lets crop out the
+  #   middle 360 vertical pixels so that we don't end up bluring the vertical resolution to accomidate
+  #   a couple of edge pixels that don't really matter. 
+  if [ "${CROP_HEIGHT}" -lt "376" ] && [ "${CROP_HEIGHT}" -gt "360" ]; then
     CROP_HEIGHT="360"
     VIDEO_FILTER="${VIDEO_FILTER}crop=${CROP_WIDTH}:360,"
   fi
-  # Denoise Video. Pixel format should end up in yuv420p10le.
+  # Denoise Video when enabled.
+  # Only use the better nlmeans denoiser when when preset is not: ultrafast, superfast, veryfast, faster
+  # Pixel format should end up in yuv420p10le.
   if [ "${DENOISE_VIDEO}" == "false" ]; then
     if [ "${INPUT_PIX_FMT}" != "yuv420p10le" ]; then
       VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p10le,"
     fi
   elif [ "${PRESET_GROUP}" == "1" ]; then
-    VIDEO_FILTER="${VIDEO_FILTER}hqdn3d=2:2:9:9,"
+    VIDEO_FILTER="${VIDEO_FILTER}hqdn3d=2:2:15:15,"
     if [ "${INPUT_PIX_FMT}" != "yuv420p10le" ]; then
       VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p10le,"
     fi
-  elif [ "${INPUT_PIX_FMT}" != "yuv420p" ]; then
-    VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p,nlmeans='1.0:7:5:3:3',format=yuv420p10le,"
   else
+    # nlmeans needs the video format to be in yuv420p or it crashes.
+    if [ "${INPUT_PIX_FMT}" != "yuv420p" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p,"
+    fi
     VIDEO_FILTER="${VIDEO_FILTER}nlmeans='1.0:7:5:3:3',format=yuv420p10le,"
   fi
   # Migrate Video to 720p colorspace. Not doing so will cause playback issues on some players.
@@ -288,42 +303,42 @@ getVideoFilter() {
   elif [ "${INPUT_COLOR_PRIMITIVES}" != "bt709" ]; then
     VIDEO_FILTER="${VIDEO_FILTER}colorspace=bt709:iall=${INPUT_COLOR_PRIMITIVES}:fast=1,"
   fi
-  # Double resolution when necessary
-  # Only use nural network AI super-resolution when preset is not: ultrafast, superfast, veryfast, faster
-  local SCALE_WIDTH="false"
-  local SCALE_HEIGHT="false"
+  # Determine when non-realtime horizontal and/or vertical scalling would increase quality.
+  local SHOULD_SCALE_WIDTH="false"
+  local SHOULD_SCALE_HEIGHT="false"
   if [ "${INPUT_DAR}" -gt "1777" ]; then
     if [ "${CROP_WIDTH}" -lt "1180" ]; then
-      SCALE_WIDTH="true"
+      SHOULD_SCALE_WIDTH="true"
     fi
     if [ "${CROP_HEIGHT}" -lt "500" ]; then
-      SCALE_HEIGHT="true"
+      SHOULD_SCALE_HEIGHT="true"
     fi
   else
     if [ "${CROP_WIDTH}" -lt "900" ]; then
-      SCALE_WIDTH="true"
+      SHOULD_SCALE_WIDTH="true"
     fi
     if [ "${CROP_HEIGHT}" -lt "620" ]; then
-      SCALE_HEIGHT="true"
+      SHOULD_SCALE_HEIGHT="true"
     fi
   fi
+  # Only use nural network AI super-resolution when preset is not: ultrafast, superfast, veryfast, faster
   if [ "${PRESET_GROUP}" != "1" ]; then
-    if [ "${SCALE_WIDTH}" == "true" ] && [ "${SCALE_HEIGHT}" == "true" ]; then
+    if [ "${SHOULD_SCALE_WIDTH}" == "true" ] && [ "${SHOULD_SCALE_HEIGHT}" == "true" ]; then
       VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih*2:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
-    elif [ "${SCALE_WIDTH}" == "true" ]; then
+    elif [ "${SHOULD_SCALE_WIDTH}" == "true" ]; then
       VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw*2:h=ih:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int,transpose=1,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',transpose=2,"
-    elif [ "${SCALE_HEIGHT}" == "true" ]; then
+    elif [ "${SHOULD_SCALE_HEIGHT}" == "true" ]; then
       VIDEO_FILTER="${VIDEO_FILTER}scale=w=iw:h=ih*2:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int,nnedi=weights=nnedi3_weights.bin:nsize='s16x6':nns='n64':pscrn='new':field='af',"
     fi
   fi
-  # Scale Video to 720p resolution.
+  # When true then force the output video to be 720p. This will allow Plex to direct play videos in the 2mbps to 4mbps ranges.
   if [ "${FORCE_720P}" == "true" ]; then
-    if [ "${SCALE_WIDTH}" == "true" ] || [ "${SCALE_HEIGHT}" == "true" ] || [ "${CROP_WIDTH}" -gt "1280" ] || [ "${CROP_HEIGHT}" -gt "720" ]; then
+    if [ "${SHOULD_SCALE_WIDTH}" == "true" ] || [ "${SHOULD_SCALE_HEIGHT}" == "true" ] || [ "${CROP_WIDTH}" -gt "1280" ] || [ "${CROP_HEIGHT}" -gt "720" ]; then
       local OUTPUT_WIDTH="0"
       local OUTPUT_HEIGHT="0"
       if [ "${CROP_WIDTH}" -gt "1280" ]; then
         OUTPUT_WIDTH="1280"
-      elif [ "${SCALE_WIDTH}" == "true" ]; then
+      elif [ "${SHOULD_SCALE_WIDTH}" == "true" ]; then
         if [ "${CROP_WIDTH}" -gt "640" ]; then
           OUTPUT_WIDTH="1280"
         elif [ "${CROP_WIDTH}" -lt "590" ]; then
@@ -336,7 +351,7 @@ getVideoFilter() {
       fi
       if [ "${CROP_HEIGHT}" -gt "720" ]; then
         OUTPUT_HEIGHT="720"
-      elif [ "${SCALE_HEIGHT}" == "true" ]; then
+      elif [ "${SHOULD_SCALE_HEIGHT}" == "true" ]; then
         if [ "${CROP_HEIGHT}" -gt "360" ]; then
           OUTPUT_HEIGHT="720"
         elif [ "${CROP_HEIGHT}" -lt "310" ]; then
@@ -354,8 +369,12 @@ getVideoFilter() {
   if [ "${FORCE_8_BIT}" == "true" ]; then
     VIDEO_FILTER="${VIDEO_FILTER}format=yuv420p,"
   fi
-  # Lightly run denoising to clean up any jitters created by scaling.
-  VIDEO_FILTER="${VIDEO_FILTER}hqdn3d=0:0:7:7"
+  # Run a light denoiser and light sharpener to clean up any jitters created by scaling.
+  if [ "${FORCE_720P}" == "true" ]; then
+    VIDEO_FILTER="${VIDEO_FILTER}hqdn3d=1:1:9:9,unsharp=5:5:0.8:3:3:0.4,"
+  fi
+  # Remove the last character (ie: the trailing comma) from the video filter string
+  VIDEO_FILTER=${VIDEO_FILTER%?}
   echo "${VIDEO_FILTER}"
 }
 optimize () {
@@ -443,7 +462,6 @@ optimize () {
       FFMPEG_PARAMS+=(-f "mp4")
       FFMPEG_PARAMS+=(-y)
       FFMPEG_PARAMS+=("${TMP_DIR}/optimized.mp4")
-#      echo "FFMPEG_PARAMS: ${FFMPEG_PARAMS}"
       if ffmpeg ${FFMPEG_PARAMS[@]}; then
         mkdir -p "$(getInputDir)$(getTitle)/orig"
         mv "$filename" "${INPUT_DIR}/${TITLE}/orig/${TITLE}.mp4"
@@ -517,8 +535,17 @@ concat_optimize() {
     local PRESET="$(getPreset)"
     local PRESET_GROUP="$(getPresetGroup)"
     local INPUT_FPS="$(getInputFps "${INPUT_FILE_NAME}")"
+    local INPUT_SAR="$(getInputSar "$INPUT_FILE_NAME")"
     local VIDEO_FILTER=""
+    local OUTPUT_SCALING_ALGO=""
     local CRF=""
+
+    # Determine Scaling Algorithm
+    if [ "${PRESET_GROUP}" == "1" ]; then
+      OUTPUT_SCALING_ALGO="bicubic"
+    else
+      OUTPUT_SCALING_ALGO="spline"
+    fi
 
     # Calculate Video Filter
     if [ "${PRESET_GROUP}" == "1" ]; then
@@ -526,6 +553,14 @@ concat_optimize() {
     else
       VIDEO_FILTER="$(getVideoFilter "false" "${INPUT_FILE_NAME}")"
     fi
+
+    # Force SAR to be 1.
+    if [ "${INPUT_SAR}" -lt "1000" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER},scale=w=iw:h=iw/dar:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int"
+    elif [ "${INPUT_SAR}" -gt "1000" ]; then
+      VIDEO_FILTER="${VIDEO_FILTER},scale=w=ih*dar:h=ih:flags=print_info+${OUTPUT_SCALING_ALGO}+full_chroma_inp+full_chroma_int"
+    fi
+
 
     # Calculate CRF
     if [ "${PRESET_GROUP}" == "1" ]; then
@@ -701,12 +736,15 @@ concat () {
 
   # When the DAR s larger than 16:9 then the width fills the frame and the height should be proportional.
   # Otherwise the height fills the frame and the width should be proportional.
-  local MAX_OUTPUT_WIDTH="0"
-  local MAX_OUTPUT_HEIGHT="0"
-  if [ "${MAX_INPUT_HEIGHT}" -gt "${MAX_OUTPUT_HEIGHT}" ]; then
-    MAX_OUTPUT_HEIGHT="${MAX_INPUT_HEIGHT}"
+  local MAX_OUTPUT_HEIGHT="${MAX_INPUT_HEIGHT}"
+  local MAX_OUTPUT_WIDTH=$(echo "${MAX_INPUT_HEIGHT}*${MAX_INPUT_DAR}/1000" | bc)
+  if [ "${MAX_INPUT_WIDTH}" -gt "${MAX_OUTPUT_WIDTH}" ]; then
+    MAX_OUTPUT_WIDTH="${MAX_INPUT_WIDTH}"
+    MAX_OUTPUT_HEIGHT=$(echo "${MAX_OUTPUT_WIDTH}*1000/${MAX_INPUT_DAR}" | bc)
   fi
-  MAX_OUTPUT_WIDTH=$(echo "${MAX_INPUT_DAR}*${MAX_OUTPUT_HEIGHT}/1000" | bc)
+  if [ "${MAX_INPUT_HEIGHT}" -gt "${MAX_OUTPUT_HEIGHT}" ]; then
+    MAX_INPUT_HEIGHT="${MAX_OUTPUT_HEIGHT}"
+  fi
   # for each video, lets do some processing and then scale it to fit in the MAX_INPUT_WIDTH by MAX_INPUT_HEIGHT box.
   for origPart in "$(getTmpDir)"/*.m4v; do
     local INPUT_WIDTH=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=width "${origPart}") 2>&1)
@@ -834,9 +872,19 @@ getProduceSample () {
 getDenoise() {
   echo $denoise
 }
-# returns true when the video should be stabilized.
-getStabilize() {
-  echo $stabilize
+# returns true when the video should be cropped.
+getCrop() {
+  echo $crop
+}
+# returns true when the video should be decombed.
+getDecomb() {
+  if [ "${decomb}" == "false" ]; then
+    echo "false"
+  elif [ "$(isInputProgressive "${1}")" == "true" ]; then
+    echo "false"
+  else
+    echo "true"
+  fi
 }
 # returns the preset to use. Options: ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow, placebo
 getPreset() {
@@ -933,8 +981,27 @@ getInputDar () {
     INPUT_DAR=$(echo "1000*${INPUT_DAR_WIDTH}/${INPUT_DAR_HEIGHT}" | bc)
     echo "${INPUT_DAR}"
 }
+# get the input file's SAR
+getInputSar () {
+    local INPUT_SAR=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=sample_aspect_ratio "${1}") 2>&1)
+    # everything before the last : is considered the SAR's width
+    local INPUT_SAR_WIDTH="${INPUT_SAR%:*}"
+    # everything after the last :  is considered the SAR's height
+    local INPUT_SAR_HEIGHT=${INPUT_SAR##*:}
+    INPUT_SAR=$(echo "1000*${INPUT_SAR_WIDTH}/${INPUT_SAR_HEIGHT}" | bc)
+    echo "${INPUT_SAR}"
+}
 getCropValue() {
-  local CROP_VALUE=$(ffmpeg -t 1000 -i "${1}" -vf "select=not(mod(n\,1000)),cropdetect=36:1:0" -f null - 2>&1 | awk '/crop/ { print $NF }' | tail -1)
+  local CROP_VALUE=""
+  if [ "$(getCrop)" == "true" ]; then
+    CROP_VALUE=$(ffmpeg -t 1000 -i "${1}" -vf "select=not(mod(n\,1000)),cropdetect=36:1:0" -f null - 2>&1 | awk '/crop/ { print $NF }' | tail -1)
+  fi
+  # when there is no crop value found then use the input resolution.
+  if [ "${CROP_VALUE}" == "" ]; then
+    local INPUT_WIDTH="$(getInputWidth "${1}")"
+    local INPUT_HEIGHT="$(getInputHeight "${1}")"
+    CROP_VALUE="crop=${INPUT_WIDTH}:${INPUT_HEIGHT}:0:0"
+  fi
   echo $CROP_VALUE
 }
 getDuration() {
