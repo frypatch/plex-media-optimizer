@@ -164,11 +164,6 @@ main () {
   else
     echo -e "${ALERT_FONT}has fdk aac $(isFdkAacInstalled)${RESET_FONT}"
   fi
-  if [ "$(isLibVidStabInstalled)" == "true" ]; then
-    echo -e "${SUCCESS_FONT}has vidstab $(isLibVidStabInstalled)${RESET_FONT}"
-  else
-    echo -e "${ALERT_FONT}has vidstab $(isLibVidStabInstalled)${RESET_FONT}"
-  fi
   echo -e "${SUCCESS_FONT}preset      ${preset}${RESET_FONT}"
   echo -e "${SUCCESS_FONT}filter      ${filter}${RESET_FONT}"
   echo -e "${SUCCESS_FONT}inputDir    ${inputDir}${RESET_FONT}"
@@ -1080,14 +1075,6 @@ isInputProgressive() {
 isFdkAacInstalled () {
   local FFMPEG_VERSION=$((ffmpeg -version) 2>&1)
   if [[ "${FFMPEG_VERSION}" == *"--enable-libfdk-aac"* ]]; then
-    echo "true"
-  else
-    echo "false"
-  fi
-}
-isLibVidStabInstalled () {
-  local FFMPEG_VERSION=$((ffmpeg -version) 2>&1)
-  if [[ "${FFMPEG_VERSION}" == *"--enable-libvidstab"* ]]; then
     echo "true"
   else
     echo "false"
