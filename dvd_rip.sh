@@ -69,7 +69,7 @@ inputDir="unknown"
 # set to apply a filter to titles that should be optimized
 filter=".*"
 # video bitrate
-videoBitrate="1900"
+videoBitrate="1800"
 # force 8bit video
 force8bit="false"
 # force AVC video
