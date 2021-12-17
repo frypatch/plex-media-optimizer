@@ -57,7 +57,6 @@ title="unknown"
 tmpDir=""
 originalVersion=""
 optimizedVersion=""
-downsampleVersion=""
 filename=""
 
 ###############################################
@@ -163,6 +162,11 @@ main () {
     echo -e "${SUCCESS_FONT}has fdk aac $(isFdkAacInstalled)${RESET_FONT}"
   else
     echo -e "${ALERT_FONT}has fdk aac $(isFdkAacInstalled)${RESET_FONT}"
+  fi
+  if [ "$(isOpusInstalled)" == "true" ]; then
+    echo -e "${SUCCESS_FONT}libopus     $(isFdkAacInstalled)${RESET_FONT}"
+  else
+    echo -e "${ALERT_FONT}libopus     $(isFdkAacInstalled)${RESET_FONT}"
   fi
   echo -e "${SUCCESS_FONT}preset      ${preset}${RESET_FONT}"
   echo -e "${SUCCESS_FONT}filter      ${filter}${RESET_FONT}"
@@ -392,7 +396,6 @@ optimize () {
   fi
   if [ "${IS_OPTIMIZED}" == "true" ]; then
     echo -e "${SUCCESS_FONT}### ${TITLE}.mp4 has already been optimized.${RESET_FONT}"
-    downsample "${INPUT_DIR}/${TITLE}/${TITLE}.mp4"
   else
     echo -e "${ALERT_FONT}### Optimizing ${TITLE}.mp4${RESET_FONT}"
     local INPUT_DIR="$(getInputDir)"
@@ -406,6 +409,7 @@ optimize () {
     local INPUT_AUDIO_CHANNELS="$(getInputAudioChannels)"
     local CRF=""
     local VIDEO_FILTER="$(getVideoFilter "true" "$filename")"
+    local AUDIO_CODEC="libopus"
 
     # Calculate CRF
     if [ "${PRESET_GROUP}" == "1" ]; then
@@ -415,9 +419,14 @@ optimize () {
     else
       CRF="10"
     fi
-
+    local IS_OPUS_INSTALLED="$(isOpusInstalled)"
+    if [ "${IS_OPUS_INSTALLED}" == "false" ]; then
+      echo -e "${INFO_FONT}### Opus is not installed, falling back to AAC.${RESET_FONT}"
+      AUDIO_CODEC="aac"
+    fi
     echo -e "${INFO_FONT}### Video Filter: $VIDEO_FILTER${RESET_FONT}"
     if [ "$(getDryRun)" == "false" ]; then
+      backupAudio "${filename}"
       initTmpDirs
       local TMP_DIR="$(getTmpDir)"
       local TMP_FILENAME="$(getTmpDir)/original.mp4"
@@ -443,16 +452,33 @@ optimize () {
         FFMPEG_PARAMS+=(-x265-params "level-idc=40:keyint=60:min-keyint=60:scenecut=0")
       fi
       FFMPEG_PARAMS+=(-map "0:a:0")
-      FFMPEG_PARAMS+=(-c:a aac)
+      FFMPEG_PARAMS+=(-c:a "${AUDIO_CODEC}")
       FFMPEG_PARAMS+=(-filter:a "aresample=async=1:min_hard_comp=0.100000:first_pts=0")
-      if [ "${INPUT_AUDIO_CHANNELS}" == "1" ] || [ "${INPUT_AUDIO_CHANNELS}" == "2" ]; then
-        FFMPEG_PARAMS+=(-ab "192k")
+      if [ "${INPUT_AUDIO_CHANNELS}" == "1" ]; then
+        FFMPEG_PARAMS+=(-ab "87k")
+        FFMPEG_PARAMS+=(-ac 1)
+      elif [ "${INPUT_AUDIO_CHANNELS}" == "2" ]; then
+        FFMPEG_PARAMS+=(-ab "100k")
         FFMPEG_PARAMS+=(-ac 2)
+      elif [ "${INPUT_AUDIO_CHANNELS}" == "3" ]; then
+        FFMPEG_PARAMS+=(-ab "112k")
+        FFMPEG_PARAMS+=(-ac 3)
+      elif [ "${INPUT_AUDIO_CHANNELS}" == "4" ]; then
+        FFMPEG_PARAMS+=(-ab "125k")
+        FFMPEG_PARAMS+=(-ac 4)
+      elif [ "${INPUT_AUDIO_CHANNELS}" == "5" ]; then
+        FFMPEG_PARAMS+=(-ab "137k")
+        FFMPEG_PARAMS+=(-ac 5)
+      elif [ "${INPUT_AUDIO_CHANNELS}" == "6" ]; then
+        FFMPEG_PARAMS+=(-ab "150k")
+        FFMPEG_PARAMS+=(-ac 6)
+      elif [ "${INPUT_AUDIO_CHANNELS}" == "7" ]; then
+        FFMPEG_PARAMS+=(-ab "162k")
+        FFMPEG_PARAMS+=(-ac 7)
       else
-        FFMPEG_PARAMS+=(-ab "448k")
+        FFMPEG_PARAMS+=(-ab "175k")
         FFMPEG_PARAMS+=(-ac "${INPUT_AUDIO_CHANNELS}")
       fi
-      FFMPEG_PARAMS+=(-ar 44100)
       FFMPEG_PARAMS+=(-movflags +faststart)
       FFMPEG_PARAMS+=(-f "mp4")
       FFMPEG_PARAMS+=(-y)
@@ -465,55 +491,33 @@ optimize () {
           rm -rf "${INPUT_DIR}/${TITLE}/orig"
         fi
         rm -rf "${TMP_DIR}"
-        downsample "${INPUT_DIR}/${TITLE}/${TITLE}.mp4"
       fi
     fi
   fi
 }
-downsample () {
+backupAudio () {
   local FILENAME="${1}"
   local INPUT_DIR="$(getInputDir)"
   local INPUT_TITLE="$(getTitle)"
-  if [ -f "${INPUT_DIR}/${INPUT_TITLE}/${INPUT_TITLE} - 48k audio.mp4" ]; then
-    echo -e "${SUCCESS_FONT}### ${INPUT_TITLE}.mp4 audio has already been downsampled.${RESET_FONT}"
+  if [ -f "${INPUT_DIR}/${INPUT_TITLE}/original_audio.mka" ]; then
+    echo -e "${SUCCESS_FONT}### Original audio from ${INPUT_TITLE} was already backed up.${RESET_FONT}"
   else
-    echo -e "${ALERT_FONT}### Downsample ${INPUT_TITLE}.mp4 audio to 48k.${RESET_FONT}"
-    local IS_FDK_AAC_INSTALLED="$(isFdkAacInstalled)"
-    if [ "${IS_FDK_AAC_INSTALLED}" == "false" ]; then
-      echo -e "${INFO_FONT}### AAC HE V2 is not installed, falling back to AAC Mono for 48k audio version.${RESET_FONT}"
-      echo -e "${INFO_FONT}###   To install AAC HE V2 on MacOS:${RESET_FONT}"
-      echo -e "${INFO_FONT}###     brew uninstall ffmpeg${RESET_FONT}"
-      echo -e "${INFO_FONT}###     brew tap homebrew-ffmpeg/ffmpeg${RESET_FONT}"
-      echo -e "${INFO_FONT}###     brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-fdk-aac --HEAD${RESET_FONT}"
-    fi
+    echo -e "${ALERT_FONT}### Backing up original audio from ${INPUT_TITLE}.${RESET_FONT}"
     if [ "$(getDryRun)" == "false" ]; then
       initTmpDirs
       local TMP_DIR="$(getTmpDir)"
-      local TMP_FILENAME="$(getTmpDir)/original.mp4"
-      cp "${FILENAME}" "${TMP_FILENAME}"
-      local FFMPEG_DOWNSAMPLE_PARAMS=()
-      FFMPEG_DOWNSAMPLE_PARAMS+=(-i "${TMP_FILENAME}")
-      FFMPEG_DOWNSAMPLE_PARAMS+=(-map "0:v")
-      FFMPEG_DOWNSAMPLE_PARAMS+=(-map "0:a")
-      FFMPEG_DOWNSAMPLE_PARAMS+=(-c:v "copy")
-      if [ "${IS_FDK_AAC_INSTALLED}" == "true" ]; then
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-c:a libfdk_aac)
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-profile:a aac_he_v2)
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-filter:a "aresample=async=1:min_hard_comp=0.100000:first_pts=0")
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-ac 2)
-      else
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-c:a aac)
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-filter:a "aresample=async=1:min_hard_comp=0.100000:first_pts=0")
-        FFMPEG_DOWNSAMPLE_PARAMS+=(-ac 1)
-      fi
-      FFMPEG_DOWNSAMPLE_PARAMS+=(-ab "48k")
-      FFMPEG_DOWNSAMPLE_PARAMS+=(-ar 44100)
-      FFMPEG_DOWNSAMPLE_PARAMS+=(-movflags +faststart)
-      FFMPEG_DOWNSAMPLE_PARAMS+=(-f "mp4")
-      FFMPEG_DOWNSAMPLE_PARAMS+=(-y)
-      FFMPEG_DOWNSAMPLE_PARAMS+=("${TMP_DIR}/downsample.mp4")
-      if ffmpeg ${FFMPEG_DOWNSAMPLE_PARAMS[@]}; then
-        cp "${TMP_DIR}/downsample.mp4" "${INPUT_DIR}/${INPUT_TITLE}/${INPUT_TITLE} - 48k audio.mp4"
+      local TMP_ORIGINAL_FILENAME="${TMP_DIR}/original.mp4"
+      local TMP_BACKUP_FILENAME="${TMP_DIR}/original.mka"
+      cp "${FILENAME}" "${TMP_ORIGINAL_FILENAME}"
+      echo "copied file to ${TMP_ORIGINAL_FILENAME}"
+      local FFMPEG_BACKUP_PARAMS=()
+      FFMPEG_BACKUP_PARAMS+=(-i "${TMP_ORIGINAL_FILENAME}")
+      FFMPEG_BACKUP_PARAMS+=(-vn)
+      FFMPEG_BACKUP_PARAMS+=(-acodec copy)
+      FFMPEG_BACKUP_PARAMS+=(-y)
+      FFMPEG_BACKUP_PARAMS+=("${TMP_BACKUP_FILENAME}")
+      if ffmpeg ${FFMPEG_BACKUP_PARAMS[@]}; then
+        cp "${TMP_BACKUP_FILENAME}" "${INPUT_DIR}/${INPUT_TITLE}/original_audio.mka"
         rm -rf "${TMP_DIR}"
       fi
       rm -rf "${TMP_DIR}"
@@ -746,7 +750,8 @@ concat () {
     local INPUT_HEIGHT=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=height "${origPart}") 2>&1)
     local INPUT_PIX_FMT=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=pix_fmt "${origPart}") 2>&1)
     local INPUT_COLOR_PRIMITIVES=$((ffprobe -v error -select_streams v:0 -of default=noprint_wrappers=1:nokey=1 -show_entries stream=color_primaries "${origPart}") 2>&1)
-    local CRF=""
+    local CRF=""    
+    local AUDIO_CODEC="libopus"
 
     # Calculate CRF
     if [ "${PRESET_GROUP}" == "1" ]; then
@@ -755,6 +760,11 @@ concat () {
       CRF="10"
     else
       CRF="6"
+    fi
+    local IS_OPUS_INSTALLED="$(isOpusInstalled)"
+    if [ "${IS_OPUS_INSTALLED}" == "false" ]; then
+      echo -e "${INFO_FONT}### Opus is not installed, falling back to AAC.${RESET_FONT}"
+      AUDIO_CODEC="aac"
     fi
 
     local ffmpegParams=()
@@ -780,11 +790,11 @@ concat () {
     ffmpegParams+=(-g 60)
     ffmpegParams+=(-sc_threshold 0)
     ffmpegParams+=(-map "0:a:0")
-    ffmpegParams+=(-c:a aac)
+    ffmpegParams+=(-c:a "${AUDIO_CODEC}")
     ffmpegParams+=(-filter:a "aresample=async=1:min_hard_comp=0.100000:first_pts=0")
     ffmpegParams+=(-ab "600k")
     ffmpegParams+=(-ac "${MAX_INPUT_AUDIO_CHANNELS}")
-    ffmpegParams+=(-ar 44100)
+    ffmpegParams+=(-ar 48000)
     ffmpegParams+=(-f "mp4")
     ffmpegParams+=(-y "${origPart}.mp4")
     if ffmpeg ${ffmpegParams[@]}; then
@@ -1075,6 +1085,14 @@ isInputProgressive() {
 isFdkAacInstalled () {
   local FFMPEG_VERSION=$((ffmpeg -version) 2>&1)
   if [[ "${FFMPEG_VERSION}" == *"--enable-libfdk-aac"* ]]; then
+    echo "true"
+  else
+    echo "false"
+  fi
+}
+isOpusInstalled () {
+  local FFMPEG_VERSION=$((ffmpeg -version) 2>&1)
+  if [[ "${FFMPEG_VERSION}" == *"--enable-libopus"* ]]; then
     echo "true"
   else
     echo "false"
