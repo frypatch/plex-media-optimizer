@@ -1,7 +1,7 @@
 # DVD Upscale
 
 ## Purpose
-The DVD upscaler is designed to upscale provided DVD quality videos to 720p.
+The DVD upscaler is designed to re-encode videos to 720p.
 
 ## Example Usage
 ```sh
