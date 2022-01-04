@@ -144,12 +144,13 @@ func scale(v *Video) bool {
     params := []string{}
     params = append(params, "-i", original)
     params = append(params, "-map", "0:v:0")
-    params = append(params, "-vf", v.Filter(true))
+    // preset group 0 should be scaled to 720p to increase encoding speed.
+    params = append(params, "-vf", v.Filter(GetParameters().PresetGroup() == 0))
     params = append(params, "-vsync", "1")
     params = append(params, "-vcodec", "libx264")
     params = append(params, "-r", v.Fps())
-    // preset group 0 has -crf 16; preset group 1 has -crf 10; preset group 2 has -crf 4.
-    params = append(params, "-crf", strconv.Itoa(16 - GetParameters().PresetGroup() * 6))
+    // preset group 0 has -crf 14; preset group 1 has -crf 10; preset group 2 has -crf 6.
+    params = append(params, "-crf", strconv.Itoa(14 - GetParameters().PresetGroup() * 4))
     params = append(params, "-preset", GetParameters().Preset())
     params = append(params, "-profile:v", "high10")
     params = append(params, "-level:v", "6.1")
@@ -192,8 +193,8 @@ func sanitize(v *Video, fps string, w int, h int, c int, dar float64) bool {
     params = append(params, "-vsync", "1")
     params = append(params, "-vcodec", "libx264")
     params = append(params, "-r", fps)
-    // preset group 0 has -crf 16; preset group 1 has -crf 10; preset group 2 has -crf 4.
-    params = append(params, "-crf", strconv.Itoa(16 - GetParameters().PresetGroup() * 6))
+    // preset group 0 has -crf 14; preset group 1 has -crf 10; preset group 2 has -crf 6.
+    params = append(params, "-crf", strconv.Itoa(14 - GetParameters().PresetGroup() * 4))
     params = append(params, "-preset", GetParameters().Preset())
     params = append(params, "-profile:v", "high10")
     params = append(params, "-level:v", "6.1")

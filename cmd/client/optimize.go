@@ -129,8 +129,7 @@ func optimizeVideo(m *Media) bool {
     params = append(params, "-vsync", "1")
     params = append(params, "-vcodec", GetParameters().VideoCodec())
     params = append(params, "-r", m.Video().Fps())
-    // preset group 0 has -crf 22; preset group 1 has -crf 16; preset group 2 has -crf 10.
-    params = append(params, "-crf", strconv.Itoa(22 - GetParameters().PresetGroup() * 6))
+    params = append(params, "-crf", "16")
     params = append(params, "-maxrate", strconv.Itoa(m.TargetVideoBitrate()))
     params = append(params, "-bufsize", strconv.Itoa(m.TargetVideoBitrate() * 2))
     params = append(params, "-preset", GetParameters().Preset())
