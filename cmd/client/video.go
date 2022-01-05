@@ -381,7 +381,7 @@ func (v *Video) Filter(force720p bool) string {
         }
     }
     // Only use nural network AI super-resolution when preset is not: ultrafast, superfast, veryfast, faster
-    if GetParameters().PresetGroup() != 0 {
+    if GetParameters().PresetGroup() != 0  && GetParameters().Nnedi() {
         if shouldScaleWidth && shouldScaleHeight {
             vf = append(vf, "scale=w=iw*2:h=ih*2:flags=print_info+spline+full_chroma_inp+full_chroma_int")
             wasScaled = true
