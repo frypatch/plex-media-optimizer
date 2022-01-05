@@ -22,9 +22,10 @@ type Parameters struct {
     forceAvc    bool
     dryRun      bool
     skipCleanup bool
-    skipDenoise bool
-    skipDecomb  bool
     skipCrop    bool
+    skipDecomb  bool
+    skipDenoise bool
+    skipNnedi   bool
     help        bool
     preset      string
     acodec      string
@@ -34,13 +35,14 @@ func ParseFlags() *Parameters {
     pathPtr := flag.String("path", "unknown", "The path to the directory to scan.")
     filterPtr := flag.String("filter", ".*", "A regex value. Only scan movies whose title matches this value.")
     bitrarePtr := flag.Int("bitrate", 1950000, "Maximum bitrate of the resulting video.")
-    force8BitPtr := flag.Bool("force8Bit", false, "True when the resulting video's color depth should be 8-bit instead of 10-bit.")
-    forceAvcPtr := flag.Bool("forceAvc", false, "True when the resulting video's codec should be AVC instead of HEVC.")
+    force8BitPtr := flag.Bool("force8Bit", false, "Supply this flag when the resulting video's color depth should be 8-bit instead of 10-bit.")
+    forceAvcPtr := flag.Bool("forceAvc", false, "Supply this flag when the resulting video's codec should be AVC instead of HEVC.")
     dryRunPtr := flag.Bool("dryRun", false, "Supply this flag when the video encoding step should be skipped.")
     skipCleanupPtr := flag.Bool("skipCleanup", false, "Supply this flag when the original videos should not be discarded.")
-    skipDenoisePtr := flag.Bool("skipDenoise", false, "Supply this flag when the denoiser should not be used before scaling the video.")
-    skipDecombPtr := flag.Bool("skipDecomb", false, "Supply this flag when interlaced video should not be converted to progressive video.")
     skipCropPtr := flag.Bool("skipCrop", false, "Supply this flag when letter-box bars in the source video should not be removed.")
+    skipDecombPtr := flag.Bool("skipDecomb", false, "Supply this flag when interlaced video should not be converted to progressive video.")
+    skipDenoisePtr := flag.Bool("skipDenoise", false, "Supply this flag when the denoiser should not be used before scaling the video.")
+    skipNnediPtr := flag.Bool("skipNnedi", false, "Supply this flag when the nnedi upscaler not be used to scale the video.")
     presetPtr := flag.String("preset", "slow", "The preset to use. Slower preset values will produce better video quality. Valid preset values are:" + PresetValues)
     flag.Parse()
     params = &Parameters{}
@@ -51,9 +53,10 @@ func ParseFlags() *Parameters {
     params.forceAvc = *forceAvcPtr
     params.dryRun = *dryRunPtr
     params.skipCleanup = *skipCleanupPtr
-    params.skipDenoise = *skipDenoisePtr
-    params.skipDecomb = *skipDecombPtr
     params.skipCrop = *skipCropPtr
+    params.skipDecomb = *skipDecombPtr
+    params.skipDenoise = *skipDenoisePtr
+    params.skipNnedi = *skipNnediPtr
     params.preset = *presetPtr
     return params
 }
@@ -110,6 +113,10 @@ func (p *Parameters) Decomb() bool {
 
 func (p *Parameters) Crop() bool {
     return !p.skipCrop
+}
+
+func (p *Parameters) Nnedi() bool {
+    return !p.skipNnedi
 }
 
 func (p *Parameters) Help() bool {
