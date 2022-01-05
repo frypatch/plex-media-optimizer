@@ -73,7 +73,7 @@ When the source video has an 8-bit color depth re-encoding the video using a 10-
 ### Why use the HEVC codec?
 The HEVC codec is about 40% more efficient than the AVC codec which allows us to re-encode DVD videos using a CRF value of 16 to produce a video that in most situations has a bitrate less than 2000kbps. Additioanlly, most consumer video decoders support the HEVC codec with a 10-bit color depth but only support the AVC codec with an 8-bit color depth. Thus, a Plex server is able to direct stream a 10-bit HEVC video to the Plex client but most transcode the 8-bit AVC video while streaming the video to the Plex client.
 
-### Why use denoisers ans sharpeners?
+### Why use denoisers and sharpeners?
 Strategic use of a denoiser allows us to dictate to the video codec what visuals to spend bitrate on by pro-actively removing video noise from the source before encoding. NLMeans is a fairly powerful denoiser that was chosen as the main denoiser to use before scaling. After scaling hqdn3d (a lightweight denoiser) and unsharp (an image sharpener) are very lightly used to remove temporal jitters that were introduced from the scaling process.
 
 ### Why crop the video?
