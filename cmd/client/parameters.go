@@ -20,6 +20,7 @@ type Parameters struct {
     bitrate     int
     force8Bit   bool
     forceAvc    bool
+    forceHevc   bool
     dryRun      bool
     skipCleanup bool
     skipCrop    bool
@@ -36,7 +37,8 @@ func ParseFlags() *Parameters {
     filterPtr := flag.String("filter", ".*", "A regex value. Only scan movies whose title matches this value.")
     bitrarePtr := flag.Int("bitrate", 1950000, "Maximum bitrate of the resulting video.")
     force8BitPtr := flag.Bool("force8Bit", false, "Supply this flag when the resulting video's color depth should be 8-bit instead of 10-bit.")
-    forceAvcPtr := flag.Bool("forceAvc", false, "Supply this flag when the resulting video's codec should be AVC instead of HEVC.")
+    forceAvcPtr := flag.Bool("forceAvc", false, "Supply this flag when the resulting video's codec should be AVC instead of AV1.")
+    forceHevcPtr := flag.Bool("forceHevc", false, "Supply this flag when the resulting video's codec should be HEVC instead of AV1.")
     dryRunPtr := flag.Bool("dryRun", false, "Supply this flag when the video encoding step should be skipped.")
     skipCleanupPtr := flag.Bool("skipCleanup", false, "Supply this flag when the original videos should not be discarded.")
     skipCropPtr := flag.Bool("skipCrop", false, "Supply this flag when letter-box bars in the source video should not be removed.")
@@ -51,6 +53,7 @@ func ParseFlags() *Parameters {
     params.bitrate = *bitrarePtr
     params.force8Bit = *force8BitPtr
     params.forceAvc = *forceAvcPtr
+    params.forceHevc = *forceHevcPtr
     params.dryRun = *dryRunPtr
     params.skipCleanup = *skipCleanupPtr
     params.skipCrop = *skipCropPtr
@@ -71,6 +74,7 @@ func (p *Parameters) Println() {
     fmt.Println("bitrate:", p.bitrate)
     fmt.Println("force8Bit:", p.force8Bit)
     fmt.Println("forceAvc:", p.forceAvc)
+    fmt.Println("forceHevc:", p.forceHevc)
     fmt.Println("dryRun:", p.dryRun)
     fmt.Println("skipCleanup:", p.skipCleanup)
     fmt.Println("skipDenoise:", p.skipDenoise)
@@ -97,6 +101,14 @@ func (p *Parameters) Force8Bit() bool {
 
 func (p *Parameters) ForceAvc() bool {
     return p.forceAvc
+}
+
+func (p *Parameters) ForceHevc() bool {
+    return p.forceHevc
+}
+
+func (p *Parameters) ForceAv1() bool {
+    return !p.forceHevc && !p.forceAvc
 }
 
 func (p *Parameters) DryRun() bool {
@@ -173,8 +185,10 @@ func (p *Parameters) VideoProfile() string {
 func (p *Parameters) VideoCodec() string {
     if p.forceAvc == true {
         return "libx264"
-    } else {
+    } else if p.forceHevc == true {
         return "libx265"
+    } else {
+        return "libaom-av1"
     }
 }
 

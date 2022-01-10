@@ -329,9 +329,11 @@ func (v *Video) Filter(force720p bool) string {
         vf = append(vf, fmt.Sprintf("crop=%d:360,", cropWidth))
     }
     // Denoise Video when enabled.
+    // Do Not denoise on ultrafast mode as denoising slows things down
+    // Do not denoise on AV1 mode as AV1 does its own denoising during grain synthesis
     // Only use the better nlmeans denoiser when when preset is not: ultrafast, superfast, veryfast, faster
     // Pixel format should end up in yuv420p10le.
-    if GetParameters().Ultrafast() || !GetParameters().Denoise() {
+    if GetParameters().Ultrafast() || GetParameters().ForceAv1() || !GetParameters().Denoise() {
         if v.PixFmt() != "yuv420p10le" {
             vf = append(vf, "format=yuv420p10le")
         }
