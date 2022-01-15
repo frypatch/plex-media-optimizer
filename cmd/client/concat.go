@@ -103,7 +103,6 @@ func joinAll(videos []*Video, title string, to string) bool {
     defer os.RemoveAll(tmpFiles)
     Write(filepath.Join(tmpFiles, "files.txt"), files(videos))
     Write(filepath.Join(tmpFiles, "metadata.txt"), metadata(title, videos))
-    fmt.Println("tmpFiles", tmpFiles)
     params := []string{}
     params = append(params, "-f", "concat")
     params = append(params, "-safe", "0")
@@ -255,7 +254,7 @@ func metadata(title string, videos []*Video) string {
     start := 0
     end := 0
     for i, v := range videos {
-        end = end + v.Duration()
+        end = end + v.DurationMs()
         chapterData = chapterData + "[CHAPTER]\n"
         chapterData = chapterData + "TIMEBASE=1/1000\n"
         chapterData = chapterData + fmt.Sprintf("START=%v\n", start)
