@@ -18,7 +18,7 @@ type Video struct {
     dar            *float64
     sar            *float64
     crop           *Crop
-    duration       *int
+    duration       string
     fps            string
     progressive    *bool
 }
@@ -164,6 +164,10 @@ func (v *Video) Sar() float64 {
     return *v.sar
 }
 
+func (v *Video) DetectCrop() {
+    v.Crop()
+}
+
 func (v *Video) Crop() *Crop {
 	if v.crop != nil {
 		return v.crop
@@ -179,9 +183,9 @@ func (v *Video) Crop() *Crop {
     return v.crop
 }
 
-func (v *Video) Duration() int {
-	if v.duration != nil {
-		return *v.duration
+func (v *Video) Duration() string {
+	if v.duration != "" {
+		return v.duration
 	}
 	cmd := exec.Command(
 		"ffprobe",
@@ -191,10 +195,13 @@ func (v *Video) Duration() int {
 		"-show_entries", "format=duration",
 		v.path)
 	stdout, _ := cmd.Output()
-	seconds, _ := strconv.ParseFloat(strings.TrimSuffix(string(stdout), "\n"), 64)
-	duration := int(seconds * 1000)
-	v.duration = &duration
-	return *v.duration
+	v.duration = strings.TrimSuffix(string(stdout), "\n")
+	return v.duration
+}
+
+func (v *Video) DurationMs() int {
+    seconds, _ := strconv.ParseFloat(v.Duration(), 64)
+    return int(seconds * 1000)
 }
 
 func calcFpsFromAvg(path string) string {

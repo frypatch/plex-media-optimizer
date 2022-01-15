@@ -56,19 +56,19 @@ func (m *Media) Audio() *Audio {
     return m.audio
 }
 
-func (m *Media) TargetAudioBitrate() int {
+func (m *Media) MaxAudioBitrate() int {
     return 90000 + (m.Audio().Channels() - 1) * 12000
 }
 
-func (m *Media) TargetVideoBitrate() int {
-    return GetParameters().Bitrate() - m.TargetAudioBitrate()
+func (m *Media) MaxVideoBitrate() int {
+    return GetParameters().Bitrate() - m.MaxAudioBitrate()
 }
 
 func (m *Media) OptimizedAudio() bool {
     if m.Audio().Bitrate() < 10000 {
         return false
     }
-    if m.Audio().Bitrate() > m.TargetAudioBitrate() + 10000 {
+    if m.Audio().Bitrate() > m.MaxAudioBitrate() + 10000 {
         return false
     }
     return true
@@ -78,7 +78,7 @@ func (m *Media) OptimizedVideo() bool {
     if m.Video().Bitrate() < 500000 {
         return false
     }
-    if m.Video().Bitrate() > m.TargetVideoBitrate() + 40000 {
+    if m.Video().Bitrate() > m.MaxVideoBitrate() + 40000 {
         return false
     }
     if m.Video().Width() > 1280 || m.Video().Height() > 720 {

@@ -8,6 +8,8 @@ import (
     "io/ioutil"
     "path/filepath"
     "flag"
+    "strconv"
+    "runtime"
 )
 
 var VideoExtensions []string = []string{"mp4", "mkv", "webm"}
@@ -18,9 +20,11 @@ type Parameters struct {
     path        string
     filter      string
     bitrate     int
+    cores       int
+    gop         int
     force8Bit   bool
     forceAvc    bool
-    forceHevc   bool
+    forceAv1    bool
     dryRun      bool
     skipCleanup bool
     skipCrop    bool
@@ -36,9 +40,11 @@ func ParseFlags() *Parameters {
     pathPtr := flag.String("path", "unknown", "The path to the directory to scan.")
     filterPtr := flag.String("filter", ".*", "A regex value. Only scan movies whose title matches this value.")
     bitrarePtr := flag.Int("bitrate", 1950000, "Maximum bitrate of the resulting video.")
+    coresPtr := flag.Int("cores", 0, "Number of CPU cores to use to encode the video. Defaults to one less than the total number of CPU cores.")
+    gopPtr := flag.Int("gop", 250, "Maximum number of frames before forcing a keyframe. Larger values increase visual quality.")
     force8BitPtr := flag.Bool("force8Bit", false, "Supply this flag when the resulting video's color depth should be 8-bit instead of 10-bit.")
-    forceAvcPtr := flag.Bool("forceAvc", false, "Supply this flag when the resulting video's codec should be AVC instead of AV1.")
-    forceHevcPtr := flag.Bool("forceHevc", false, "Supply this flag when the resulting video's codec should be HEVC instead of AV1.")
+    forceAvcPtr := flag.Bool("forceAvc", false, "Supply this flag when the resulting video's codec should be AVC instead of HEVC.")
+    forceAv1Ptr := flag.Bool("forceAv1", false, "Supply this flag when the resulting video's codec should be AV1 instead of HEVC.")
     dryRunPtr := flag.Bool("dryRun", false, "Supply this flag when the video encoding step should be skipped.")
     skipCleanupPtr := flag.Bool("skipCleanup", false, "Supply this flag when the original videos should not be discarded.")
     skipCropPtr := flag.Bool("skipCrop", false, "Supply this flag when letter-box bars in the source video should not be removed.")
@@ -51,9 +57,11 @@ func ParseFlags() *Parameters {
     params.path = *pathPtr
     params.filter = *filterPtr
     params.bitrate = *bitrarePtr
+    params.gop = *gopPtr
+    params.cores = *coresPtr
     params.force8Bit = *force8BitPtr
     params.forceAvc = *forceAvcPtr
-    params.forceHevc = *forceHevcPtr
+    params.forceAv1 = *forceAv1Ptr
     params.dryRun = *dryRunPtr
     params.skipCleanup = *skipCleanupPtr
     params.skipCrop = *skipCropPtr
@@ -72,9 +80,11 @@ func (p *Parameters) Println() {
     fmt.Println("path:", p.path)
     fmt.Println("filter:", p.filter)
     fmt.Println("bitrate:", p.bitrate)
+    fmt.Println("cores:", p.Cores())
+    fmt.Println("gop:", p.gop)
     fmt.Println("force8Bit:", p.force8Bit)
     fmt.Println("forceAvc:", p.forceAvc)
-    fmt.Println("forceHevc:", p.forceHevc)
+    fmt.Println("forceAv1:", p.forceAv1)
     fmt.Println("dryRun:", p.dryRun)
     fmt.Println("skipCleanup:", p.skipCleanup)
     fmt.Println("skipDenoise:", p.skipDenoise)
@@ -95,6 +105,21 @@ func (p *Parameters) Bitrate() int {
     return p.bitrate
 }
 
+func (p *Parameters) Cores() int {
+    if p.cores < 1 {
+        p.cores = runtime.NumCPU() - 1
+    }
+    if p.cores < 1 {
+        p.cores = 1
+    }
+    runtime.GOMAXPROCS(p.cores)
+    return p.cores
+}
+
+func (p *Parameters) GOP() string {
+    return strconv.Itoa(p.gop)
+}
+
 func (p *Parameters) Force8Bit() bool {
     return p.force8Bit
 }
@@ -104,11 +129,11 @@ func (p *Parameters) ForceAvc() bool {
 }
 
 func (p *Parameters) ForceHevc() bool {
-    return p.forceHevc
+    return !p.forceAvc && !p.forceAv1
 }
 
 func (p *Parameters) ForceAv1() bool {
-    return !p.forceHevc && !p.forceAvc
+    return p.forceAv1
 }
 
 func (p *Parameters) DryRun() bool {
@@ -185,10 +210,10 @@ func (p *Parameters) VideoProfile() string {
 func (p *Parameters) VideoCodec() string {
     if p.forceAvc == true {
         return "libx264"
-    } else if p.forceHevc == true {
-        return "libx265"
-    } else {
+    } else if p.forceAv1 == true {
         return "libaom-av1"
+    } else {
+        return "libx265"
     }
 }
 
