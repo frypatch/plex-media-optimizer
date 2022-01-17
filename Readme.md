@@ -15,14 +15,20 @@ go run cmd/client/* -skipCleanup -skipDenoise -path="[Path]"
 ```
   -bitrate int
     	Maximum bitrate of the resulting video. (default 1950000)
+  -cores int
+    	Number of CPU cores to use to encode the video. Defaults to one less than the total number of CPU cores.
   -dryRun
     	Supply this flag when the video encoding step should be skipped.
   -filter string
     	A regex value. Only scan movies whose title matches this value. (default ".*")
   -force8Bit
     	Supply this flag when the resulting video's color depth should be 8-bit instead of 10-bit.
+  -forceAv1
+    	Supply this flag when the resulting video's codec should be AV1 instead of HEVC.
   -forceAvc
     	Supply this flag when the resulting video's codec should be AVC instead of HEVC.
+  -gop int
+    	Maximum number of frames before forcing a keyframe. Larger values increase visual quality. (default 250)
   -path string
     	The path to the directory to scan. (default "unknown")
   -preset string
