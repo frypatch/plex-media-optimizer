@@ -39,7 +39,7 @@ type Parameters struct {
 func ParseFlags() *Parameters {
     pathPtr := flag.String("path", "unknown", "The path to the directory to scan.")
     filterPtr := flag.String("filter", ".*", "A regex value. Only scan movies whose title matches this value.")
-    bitrarePtr := flag.Int("bitrate", 1950000, "Maximum bitrate of the resulting video.")
+    bitrarePtr := flag.Int("bitrate", 2000000, "Maximum bitrate of the resulting video.")
     coresPtr := flag.Int("cores", 0, "Number of CPU cores to use to encode the video. Defaults to one less than the total number of CPU cores.")
     gopPtr := flag.Int("gop", 250, "Maximum number of frames before forcing a keyframe. Larger values increase visual quality.")
     force8BitPtr := flag.Bool("force8Bit", false, "Supply this flag when the resulting video's color depth should be 8-bit instead of 10-bit.")
