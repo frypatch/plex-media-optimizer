@@ -283,8 +283,8 @@ func optimizeScene(v *Video, maxBitrate int, start string, end string, count int
         params = append(params, "-cpu-used", strconv.Itoa(7 - GetParameters().PresetGroup() * 3))
         // Set the max frames between keyframes
         params = append(params, "-g", GetParameters().GOP())
-        // Set average bitrate to be 200kbps less than the max bitrate.
-        params = append(params, "-b:v", strconv.Itoa(maxBitrate - 200000))
+        // Set average bitrate to be 250kbps less than the max bitrate.
+        params = append(params, "-b:v", strconv.Itoa(maxBitrate - 250000))
     } else {
         // Accordig to https://goughlui.com/2016/08/27/video-compression-testing-x264-vs-x265-crf-in-handbrake-0-10-5/
         // there’s really no big difference between PSNRs for the average case between x264 and x265 on a CRF value basis.
@@ -306,8 +306,9 @@ func optimizeScene(v *Video, maxBitrate int, start string, end string, count int
             params = append(params, "-x265-params", strings.Join(h265Params, ":"))
         }
     }
-    // Setting the maxrate parameter caps the maximum bitrate.
-    params = append(params, "-maxrate", strconv.Itoa(maxBitrate))
+    // Setting the maxrate parameter caps to 50kbps less than the maximum bitrate.
+    // This gives us a little bit of wiggle room to stay under the cap without needing to do two passes.
+    params = append(params, "-maxrate", strconv.Itoa(maxBitrate - 50000))
     // Cap max buffer size to twice the max bitrate.
     // Having a buffer allows us to increase our quality as we are able to pre-load the buffer
     // with additional quality whenever the bitrate is not maxed.

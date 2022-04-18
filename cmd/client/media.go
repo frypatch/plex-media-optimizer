@@ -68,7 +68,7 @@ func (m *Media) OptimizedAudio() bool {
     if m.Audio().Bitrate() < 10000 {
         return false
     }
-    if m.Audio().Bitrate() > m.MaxAudioBitrate() + 10000 {
+    if m.Audio().Bitrate() > m.MaxAudioBitrate() {
         return false
     }
     return true
@@ -78,7 +78,7 @@ func (m *Media) OptimizedVideo() bool {
     if m.Video().Bitrate() < 500000 {
         return false
     }
-    if m.Video().Bitrate() > m.MaxVideoBitrate() + 40000 {
+    if m.Video().Bitrate() + m.Audio().Bitrate() > GetParameters().Bitrate() {
         return false
     }
     if m.Video().Width() > 1280 || m.Video().Height() > 720 {
@@ -93,8 +93,9 @@ func (m *Media) OptimizedVideo() bool {
     return true
 }
 
+// Source is optimized when video is optimized and video bitrate plus audio bitrate is less than the target bitrate.
 func (m *Media) Optimized() bool {
-    return m.OptimizedAudio() && m.OptimizedVideo()
+    return m.OptimizedVideo() && m.Video().Bitrate() + m.Audio().Bitrate() < GetParameters().Bitrate()
 }
 
 func (m *Media) Println() {
